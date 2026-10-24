@@ -27,6 +27,8 @@ from app.db.models import (
     CameraEvidence,
     Notification,
     Setting,
+    Zone,
+    PersonnelZone,
 )
 from app.db.store import row
 from app.runtime import Runtime, SAFE_SETTINGS
@@ -100,6 +102,14 @@ class SimInput(StrictModel):
     uid: str = "A1B2C3D4"
     marker_id: int = Field(0, ge=0, le=29)
     state: str = "absent"
+
+
+class ZoneInput(StrictModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class PermissionInput(StrictModel):
+    zone_ids: list[int]
 
 
 def create_app(config: Config | None = None, simulate=False, start_services=True):
@@ -196,6 +206,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             "incidents": Incident,
             "events": SecurityEvent,
             "failed-scans": FailedScan,
+            "zones": Zone,
         }
         model = models.get(resource)
         if model is None:
@@ -216,6 +227,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             "personnel": (Personnel, PersonInput),
             "inventory": (InventoryItem, ItemInput),
             "slots": (ShelfSlot, SlotInput),
+            "zones": (Zone, ZoneInput),
         }
         if resource not in models:
             raise HTTPException(404, "Unknown resource")
@@ -240,6 +252,8 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             raise HTTPException(409, "Duplicate value or invalid linked record")
         if resource == "personnel":
             runtime.engine.refresh()
+        if resource in {"slots", "inventory"}:
+            runtime.vision.reload()
         return result
 
     @app.post("/api/personnel/enrol")
@@ -268,6 +282,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             "personnel": Personnel,
             "inventory": InventoryItem,
             "slots": ShelfSlot,
+            "zones": Zone,
         }.get(resource)
         if not model:
             raise HTTPException(404)
@@ -282,7 +297,42 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 409, "Record is used by history. Deactivate personnel instead."
             )
         runtime.engine.refresh()
+        if resource in {"slots", "inventory"}:
+            runtime.vision.reload()
         return {"ok": True}
+
+    @app.get("/api/personnel/{ident}/zones")
+    def permissions(ident: int, request: Request):
+        admin(request)
+        with runtime.store.session() as s:
+            if not s.get(Personnel, ident):
+                raise HTTPException(404)
+            return {
+                "zone_ids": list(
+                    s.scalars(
+                        select(PersonnelZone.zone_id).where(
+                            PersonnelZone.personnel_id == ident
+                        )
+                    )
+                )
+            }
+
+    @app.put("/api/personnel/{ident}/zones")
+    def set_permissions(ident: int, body: PermissionInput, request: Request):
+        admin(request)
+        with runtime.store.session() as s:
+            if not s.get(Personnel, ident):
+                raise HTTPException(404)
+            if any(not s.get(Zone, z) for z in body.zone_ids):
+                raise HTTPException(422, "Unknown zone")
+            for permission in s.scalars(
+                select(PersonnelZone).where(PersonnelZone.personnel_id == ident)
+            ):
+                s.delete(permission)
+            s.flush()
+            for z in set(body.zone_ids):
+                s.add(PersonnelZone(personnel_id=ident, zone_id=z))
+        return {"zone_ids": sorted(set(body.zone_ids))}
 
     @app.get("/api/incidents/{ident}")
     def detail(ident: int, request: Request):
@@ -412,6 +462,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 setattr(slot, key, value)
             slot.empty_ref_path = None
         runtime.vision.debouncers.pop(body.slot_id, None)
+        runtime.vision.reload()
         return {
             "ok": True,
             "message": "Capture a new empty reference after changing the ROI",
@@ -432,6 +483,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 jpeg(crop(frame, (slot.roi_x, slot.roi_y, slot.roi_w, slot.roi_h)))
             )
             slot.empty_ref_path = str(path)
+        runtime.vision.reload()
         return {"ok": True}
 
     # Settings routes registered before generic GET resource below via explicit ordering at end.

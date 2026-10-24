@@ -477,18 +477,31 @@ function App() {
             </>
           ))}
         {page === "Personnel" && (
-          <Manager
-            resource="personnel"
-            title="Personnel"
-            fields={["name", "uid", "active"]}
-            defaults={{ name: "", uid: "", active: true }}
-            act={act}
-            tick={tick}
-            enrolled={status.enrolled_uid}
-          />
+          <>
+            <Manager
+              resource="personnel"
+              title="Personnel"
+              fields={["name", "uid", "active"]}
+              defaults={{ name: "", uid: "", active: true }}
+              act={act}
+              tick={tick}
+              enrolled={status.enrolled_uid}
+            />
+            {status.zones_enabled && <ZonePermissions act={act} tick={tick} />}
+          </>
         )}
         {page === "Inventory" && (
           <>
+            {status.zones_enabled && (
+              <Manager
+                resource="zones"
+                title="Zones"
+                fields={["name"]}
+                defaults={{ name: "" }}
+                act={act}
+                tick={tick}
+              />
+            )}
             <Manager
               resource="inventory"
               title="Inventory items"
@@ -917,8 +930,9 @@ function Settings({ act }: { act: Act }) {
       <h2>Detection and alarm settings</h2>
       <p>
         Alarm and detection thresholds apply immediately. Restart after changing
-        camera sources, capture rate or serial settings. Keep credentials in .env.
-        Gate authentication and watchdog timer changes also require matching firmware.
+        camera sources, capture rate or serial settings. Keep credentials in
+        .env. Gate authentication and watchdog timer changes also require
+        matching firmware.
       </p>
       <form
         onSubmit={(e) => {
@@ -1027,6 +1041,77 @@ function EventLog({ tick }: { tick: number }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+function ZonePermissions({ act, tick }: { act: Act; tick: number }) {
+  const [people, setPeople] = useState<Row[]>([]),
+    [zones, setZones] = useState<Row[]>([]),
+    [person, setPerson] = useState(0),
+    [allowed, setAllowed] = useState<number[]>([]),
+    [error, setError] = useState("");
+  useEffect(() => {
+    Promise.all([api("personnel"), api("zones")])
+      .then(([p, z]) => {
+        setPeople(p);
+        setZones(z);
+        if (p.length && !person) setPerson(p[0].id);
+      })
+      .catch((e) => setError(String(e)));
+  }, [tick]);
+  useEffect(() => {
+    if (person)
+      api(`personnel/${person}/zones`)
+        .then((v) => setAllowed(v.zone_ids))
+        .catch((e) => setError(String(e)));
+  }, [person, tick]);
+  return (
+    <section className="panel">
+      <h2>Zone permissions</h2>
+      <p>
+        Restricted removals create a warning. An active worker session still
+        keeps the buzzer quiet.
+      </p>
+      {error && <p role="alert">{error}</p>}
+      <label>
+        Worker
+        <select
+          value={person}
+          onChange={(e) => setPerson(Number(e.target.value))}
+        >
+          {people.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          act(() =>
+            api(`personnel/${person}/zones`, "PUT", { zone_ids: allowed }),
+          );
+        }}
+      >
+        {zones.map((z) => (
+          <label key={z.id}>
+            {z.name} (#{z.id})
+            <input
+              type="checkbox"
+              checked={allowed.includes(z.id)}
+              onChange={(e) =>
+                setAllowed(
+                  e.target.checked
+                    ? [...allowed, z.id]
+                    : allowed.filter((id) => id !== z.id),
+                )
+              }
+            />
+          </label>
+        ))}
+        <button disabled={!person}>Save permissions</button>
+      </form>
     </section>
   );
 }

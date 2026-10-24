@@ -73,7 +73,7 @@ bool parseCommand(const char* p,Command& c){
     spaces(p);if(*p++!=':')return false;spaces(p);
     bool quoted=*p=='"';unsigned long number=0;
     if(quoted){if(!text(p,value,sizeof(value)))return false;}
-    else {if(*p<'0'||*p>'9')return false;uint8_t digits=0;while(*p>='0'&&*p<='9'){if(++digits>9)return false;number=number*10+(*p++-'0');}}
+    else {if(*p<'0'||*p>'9')return false;if(*p=='0'&&p[1]>='0'&&p[1]<='9')return false;uint8_t digits=0;while(*p>='0'&&*p<='9'){if(++digits>9)return false;number=number*10+(*p++-'0');}}
     uint16_t bit=0;
     if(!strcmp(key,"t")&&quoted&&strlen(value)<sizeof(c.t)){bit=1;strcpy(c.t,value);}
     else if(!strcmp(key,"uid")&&quoted&&uidValid(value)){bit=2;strcpy(c.uid,value);}
@@ -141,9 +141,10 @@ void outputs(unsigned long now){
   bool green=sessionUid[0],red=redFlash,sound=false;
   if(outBlink)green=((now-outAt)/150)%2==0;
   if(!pcOk(now)){green=(now/600)%2==0;red=!green;}
+  if(redFlash)red=true; // Every failed scan keeps red lit for the full 2 s.
   if(testKind==1)green=true;if(testKind==2)red=true;if(testKind==3)sound=true;
   // Alarm always has output priority, even if cameras/PC/WhatsApp fail.
-  if(alarmOn){red=(now/100)%2==0;sound=(now/200)%2==0;}
+  if(alarmOn){red=((now-alarmAt)/100)%2==0;sound=((now-alarmAt)/200)%2==0;}
   digitalWrite(GREEN_PIN,green?HIGH:LOW);digitalWrite(RED_PIN,red?HIGH:LOW);buzzer(sound);
 }
 void setup(){

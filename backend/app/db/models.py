@@ -115,7 +115,7 @@ class CameraEvidence(Base):
     id = Column(Integer, primary_key=True)
     incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=True, index=True)
     kind = Column(String(30), nullable=False)
-    path = Column(Text, nullable=False, unique=True)
+    path = Column(Text, nullable=False)
     sha256 = Column(String(64), nullable=False)
     ts = Column(Float, default=time.time)
     ok = Column(Boolean, default=True)

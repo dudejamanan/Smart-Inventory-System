@@ -11,7 +11,7 @@ SQLAlchemy model source: `backend/app/db/models.py`. SQLite WAL, foreign_keys ON
 | security_events | id, ts indexed, type indexed, severity, payload_json |
 | incidents | id, ts indexed, kind indexed, severity, session_id -> sessions nullable, slot_id -> shelf_slots nullable, uid nullable, status indexed, ack_ts nullable, keep, notes |
 | failed_scans | id, ts indexed, uid, counter, photo_path nullable, incident_id -> incidents nullable |
-| camera_evidence | id, incident_id -> incidents indexed nullable, kind, path UNIQUE, sha256, ts, ok |
+| camera_evidence | id, incident_id -> incidents indexed nullable, kind, path, sha256, ts, ok |
 | notifications | id, incident_id -> incidents indexed, channel, to, kind (text/media), provider_sid indexed nullable, status, error_code nullable, attempts, ts |
 | camera_health_log | id, ts indexed, camera, status, detail |
 | settings | key PRIMARY KEY, value (JSON for safe settings; owner inbound time is numeric text) |

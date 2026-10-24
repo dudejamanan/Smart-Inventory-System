@@ -7,7 +7,7 @@ from collections import Counter, deque
 import cv2
 import numpy as np
 from sqlalchemy import select
-from app.db.models import ShelfSlot
+from app.db.models import ShelfSlot, InventoryItem
 from app.services.frames import dictionary, jpeg
 
 log = logging.getLogger(__name__)
@@ -133,6 +133,27 @@ class Vision:
         self.lock = threading.Lock()
         self.last_health = "UNKNOWN"
         self.refs = {}
+        self.slots = []
+        self.slot_details = {}
+        self.reload()
+
+    def reload(self) -> None:
+        """Cache calibrated slots so a DB outage cannot stall removal detection."""
+        with self.store.session() as s:
+            self.slots = list(s.scalars(select(ShelfSlot)).all())
+            names = {i.id: i.name for i in s.scalars(select(InventoryItem))}
+            self.slot_details = {
+                slot.id: {
+                    "slot_name": slot.name,
+                    "item_id": slot.item_id,
+                    "item_name": names.get(slot.item_id, slot.name),
+                    "marker_id": slot.marker_id,
+                }
+                for slot in self.slots
+            }
+        for slot in self.slots:
+            if slot.empty_ref_path:
+                self.refs[slot.empty_ref_path] = cv2.imread(slot.empty_ref_path)
 
     def start(self):
         self.thread = threading.Thread(target=self.run, daemon=True)
@@ -151,8 +172,7 @@ class Vision:
             self.engine.camera_health("shelf", status)
         if frame is None:
             return
-        with self.store.session() as s:
-            slots = s.scalars(select(ShelfSlot)).all()
+        slots = self.slots
         for slot in slots:
             roi = (slot.roi_x, slot.roi_y, slot.roi_w, slot.roi_h)
             path = slot.empty_ref_path
@@ -173,7 +193,9 @@ class Vision:
             new = deb.vote(vote)
             self.states[slot.id] = new
             if old != new:
-                self.engine.slot_change(slot.id, old, new)
+                self.engine.slot_change(
+                    slot.id, old, new, self.slot_details.get(slot.id)
+                )
                 if new == "OCCLUDED":
                     self.occluded_at[slot.id] = now
                 else:

@@ -5,7 +5,15 @@ import logging
 import threading
 import time
 from sqlalchemy import select
-from app.db.models import Personnel, Session, SecurityEvent, Incident, FailedScan
+from app.db.models import (
+    Personnel,
+    Session,
+    SecurityEvent,
+    Incident,
+    FailedScan,
+    ShelfSlot,
+    PersonnelZone,
+)
 
 log = logging.getLogger(__name__)
 
@@ -14,6 +22,7 @@ class Engine:
     def __init__(self, store, config, send):
         self.store, self.c, self.send = store, config, send
         self.lock = threading.RLock()
+        self.auth_lock = threading.RLock()
         self.whitelist = {}
         self.current = None
         self.fail_counter = 0
@@ -44,7 +53,7 @@ class Engine:
             people = s.scalars(
                 select(Personnel).where(Personnel.active.is_(True))
             ).all()
-            with self.lock:
+            with self.auth_lock:
                 self.whitelist = {p.uid: {"id": p.id, "name": p.name} for p in people}
 
     def sync(self):
@@ -82,10 +91,9 @@ class Engine:
     def authorize(self, m):
         """Called directly on serial reader before queuing durable processing."""
         if m["t"] == "SCAN":
-            with self.lock:
+            with self.auth_lock:
                 ok = int(m["uid"] in self.whitelist)
             self.send({"t": "AUTH", "seq": m["seq"], "ok": ok})
-            self.last_uid, self.last_seq = m["uid"], m["seq"]
             if self.enrol:
                 self.enrolled_uid = m["uid"]
                 self.enrol = False
@@ -97,6 +105,8 @@ class Engine:
     def handle(self, m):
         with self.lock:
             t = m["t"]
+            if t == "SCAN":
+                self.last_uid, self.last_seq = m["uid"], m["seq"]
             if t == "BOOT":
                 self.sync()
             elif t == "SESSION":
@@ -148,17 +158,30 @@ class Engine:
                 self.fail_counter = 0
             self.event(t, m)
 
-    def slot_change(self, slot_id, old, new):
+    def slot_change(
+        self, slot_id: int, old: str, new: str, details: dict | None = None
+    ) -> None:
+        # Do not wait for a DB transaction holding the rules lock.
+        if new == "ABSENT":
+            self.send({"t": "REMOVAL", "slot": slot_id})
         with self.lock:
             worker = self.current.copy() if self.current else None
-            # Send before any database/evidence work. UNO decides whether to sound.
-            if new == "ABSENT":
-                self.send({"t": "REMOVAL", "slot": slot_id})
-            payload = {"slot_id": slot_id, "old": old, "state": new, "worker": worker}
+            payload = {
+                "slot_id": slot_id,
+                "old": old,
+                "state": new,
+                "worker": worker,
+                **(details or {}),
+            }
             self.event("SLOT_STATE", payload)
             if new == "ABSENT":
                 if worker:
+                    payload["description"] = (
+                        f"Item {payload.get('item_name', slot_id)} removed by worker {worker['name']}"
+                    )
                     self.event("ITEM_REMOVED", payload)
+                    if self.c.zones_enabled:
+                        self.check_zone(slot_id, worker)
                 else:
                     ident = self.incident("SHELF_BREACH", "CRITICAL", slot_id=slot_id)
                     self.evidence(ident)
@@ -169,6 +192,26 @@ class Engine:
     def occluded(self, slot_id):
         if not self.current:
             self.incident("SLOT_OCCLUDED", slot_id=slot_id)
+
+    def check_zone(self, slot_id: int, worker: dict) -> None:
+        """Optional warning only; active sessions still suppress the UNO buzzer."""
+        with self.store.session() as s:
+            slot = s.get(ShelfSlot, slot_id)
+            denied = bool(
+                slot
+                and slot.zone_id
+                and not s.get(PersonnelZone, (worker["personnel_id"], slot.zone_id))
+            )
+            zone_id = slot.zone_id if slot else None
+        if denied:
+            self.incident(
+                "ZONE_PERMISSION",
+                "WARNING",
+                slot_id=slot_id,
+                session_id=worker["id"],
+                uid=worker["uid"],
+                notes=f"Worker {worker['name']} is not permitted in zone {zone_id}",
+            )
 
     def camera_health(self, camera, status, detail=""):
         from app.db.models import CameraHealthLog

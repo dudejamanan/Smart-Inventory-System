@@ -112,7 +112,8 @@ class Runtime:
                         with self.store.session() as s:
                             exists = s.scalar(
                                 select(CameraEvidence.id).where(
-                                    CameraEvidence.path == str(path)
+                                    CameraEvidence.path == str(path),
+                                    CameraEvidence.incident_id == incident,
                                 )
                             )
                             failed = s.scalar(
@@ -221,6 +222,7 @@ class Runtime:
                             )
                         )
                         slot.empty_ref_path = str(path)
+        self.vision.reload()
         self.notifications.start()
         self.worker = threading.Thread(target=self.run_events, daemon=True)
         self.worker.start()
@@ -236,6 +238,7 @@ class Runtime:
             self.engine.fail_counter = 0
         return {
             "simulate": self.simulate,
+            "zones_enabled": self.c.zones_enabled,
             "uptime_s": int(now - self.started),
             "serial": {
                 "connected": self.serial.connected
