@@ -13,6 +13,7 @@ uint16_t sequence=0, pendingSeq=0, windowS=DEFAULT_WINDOW_S, alarmS=DEFAULT_ALAR
 unsigned long lastPc=0, lastHb=0, pendingAt=0, lastCard=0, firstFail=0, alarmAt=0, redAt=0, outAt=0, testAt=0;
 bool redFlash=false, outBlink=false;
 uint8_t testKind=0;
+struct Command {char t[12],uid[21],state[4],what[8]; unsigned long seq,ok,on,limit,window,alarm;uint16_t fields;};
 
 bool elapsed(unsigned long now,unsigned long then,unsigned long duration){return (unsigned long)(now-then)>=duration;}
 bool pcOk(unsigned long now){return !elapsed(now,lastPc,PC_LOST_MS);}
@@ -54,7 +55,6 @@ void authorized(bool ok){
 
 // Small strict parser for this flat JSON protocol. Only strings and unsigned
 // integers are accepted. Unknown keys/duplicate keys/escapes are rejected.
-struct Command {char t[12],uid[21],state[4],what[8]; unsigned long seq,ok,on,limit,window,alarm;uint16_t fields;};
 void spaces(const char*& p){while(*p==' '||*p=='\t'||*p=='\r')p++;}
 bool text(const char*& p,char* dest,uint8_t capacity){
   if(*p++!='"')return false;uint8_t n=0;
