@@ -60,7 +60,7 @@ class SimulatedArduino:
         t = m['t']
         if t == 'HB':
             self.last_hb = self.clock()
-        elif t == 'AUTH' and self.pending and m['seq'] == self.pending[0] and self.pcok:
+        elif t == 'AUTH' and self.pending and m['seq'] == self.pending[0] and self.pcok and (self.clock()-self.pending[2])*1000 < self.c.auth_timeout_ms:
             _, uid, _ = self.pending
             self.pending = None
             if m['ok']:

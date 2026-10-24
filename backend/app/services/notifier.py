@@ -127,6 +127,9 @@ class NotificationQueue:
 
     def process(self,job):
         incident,kind,uid,source,seq,rows=job
+        if isinstance(self.provider,TwilioNotifier) and not self.session_remaining():
+            for ident in rows: self.update(ident,status='FAILED_SESSION_EXPIRED',error_code='63016')
+            return
         body=f'{kind} | {datetime.now(timezone.utc).isoformat()} | UID {uid or "none"} | {self.c.public_base_url}/#incidents/{incident}'
         self.deliver(rows[0],body)
         try:

@@ -26,6 +26,7 @@ class RealSerial:
             port = ports[0]
         self.port = serial.Serial(port, config.serial_baud, timeout=.1, write_timeout=.2)
         self.dropping = False
+        self.buffer = bytearray()
 
     def read(self) -> bytes:
         raw = self.port.read_until(b'\n', 98)
@@ -33,9 +34,14 @@ class RealSerial:
             if raw.endswith(b'\n'):
                 self.dropping = False
             return b''
-        if len(raw) >= 98 and not raw.endswith(b'\n'):
+        self.buffer.extend(raw)
+        if len(self.buffer) > 97 and not self.buffer.endswith(b'\n'):
             self.dropping = True
-        return raw
+            self.buffer.clear()
+            return b'x'*97+b'\n'
+        if self.buffer.endswith(b'\n'):
+            result=bytes(self.buffer); self.buffer.clear(); return result
+        return b''
 
     def write(self, data: bytes) -> None:
         self.port.write(data)
@@ -96,6 +102,8 @@ class SerialLink:
                     self.connected = True
                     self.on_connect()
                 if self.sim_disconnected:
+                    if self.board:
+                        with self.transport.lock: self.board.tick()
                     self.stop.wait(.1)
                     continue
                 raw = self.transport.read()
