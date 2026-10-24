@@ -1,0 +1,136 @@
+"""ArUco, empty-reference classification, temporal voting and camera supervision."""
+import logging
+import threading
+import time
+from collections import Counter,deque
+import cv2
+import numpy as np
+from sqlalchemy import select
+from app.db.models import ShelfSlot
+from app.services.frames import dictionary,jpeg
+
+log=logging.getLogger(__name__)
+
+def detect(frame):
+    gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+    a=cv2.aruco
+    if hasattr(a,'ArucoDetector'):
+        corners,ids,_=a.ArucoDetector(dictionary(),a.DetectorParameters()).detectMarkers(gray)
+    else:
+        corners,ids,_=a.detectMarkers(gray,dictionary(),parameters=a.DetectorParameters_create())
+    h,w=gray.shape
+    return {} if ids is None else {int(i):np.mean(c[0],axis=0)/[w,h] for i,c in zip(ids.flatten(),corners)}
+
+def crop(frame,roi):
+    h,w=frame.shape[:2]
+    x,y,rw,rh=roi
+    return frame[int(y*h):max(int((y+rh)*h),int(y*h)+1),int(x*w):max(int((x+rw)*w),int(x*w)+1)]
+
+def grayblur(frame):
+    return cv2.GaussianBlur(cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY),(9,9),0)
+
+def classify(frame,roi,marker_id,markers,empty,threshold):
+    x,y,w,h=roi
+    centre=markers.get(marker_id)
+    if centre is not None and x<=centre[0]<=x+w and y<=centre[1]<=y+h:
+        return 'PRESENT'
+    if empty is None: return 'UNKNOWN'
+    current=grayblur(crop(frame,roi))
+    reference=grayblur(cv2.resize(empty,(current.shape[1],current.shape[0])))
+    diff=float(np.mean(cv2.absdiff(current,reference)))
+    return 'ABSENT' if diff<threshold else 'OCCLUDED'
+
+class Debounce:
+    def __init__(self,n=4,m=5):
+        self.n=n; self.votes=deque(maxlen=m); self.state='UNKNOWN'
+    def vote(self,state):
+        self.votes.append(state)
+        if Counter(self.votes)[state]>=self.n:
+            self.state=state
+        return self.state
+
+class CameraHealth:
+    def __init__(self,c):
+        self.c=c
+        self.bad_since=None
+        self.anchor_bad=None
+        self.anchors={}
+        self.state='UNKNOWN'
+    def update(self,frame,last_at,now,markers):
+        state='OK'
+        if frame is None or now-last_at>=self.c.cam_offline_s:
+            state='OFFLINE'
+        else:
+            gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+            bad=float(gray.mean())<self.c.covered_brightness or float(cv2.Laplacian(gray,cv2.CV_64F).var())<self.c.covered_variance
+            if bad:
+                if self.bad_since is None: self.bad_since=now
+                if now-self.bad_since>=2: state='COVERED'
+            else: self.bad_since=None
+            anchors={i:p for i,p in markers.items() if 40<=i<=49}
+            if not self.anchors and anchors: self.anchors=anchors
+            moved=bool(self.anchors) and any(i not in anchors or np.linalg.norm(anchors[i]-pos)>self.c.anchor_tolerance for i,pos in self.anchors.items())
+            if moved:
+                if self.anchor_bad is None: self.anchor_bad=now
+                if now-self.anchor_bad>=3 and state=='OK': state='MOVED'
+            else: self.anchor_bad=None
+        self.state=state
+        return state
+
+class Vision:
+    def __init__(self,source,store,c,engine):
+        self.source,self.store,self.c,self.engine=source,store,c,engine
+        self.health=CameraHealth(c)
+        self.stop=threading.Event(); self.thread=None
+        self.debouncers={}; self.states={}; self.occluded_at={}; self.warned=set()
+        self.annotated=None; self.lock=threading.Lock()
+        self.last_health='UNKNOWN'
+        self.refs={}
+
+    def start(self):
+        self.thread=threading.Thread(target=self.run,daemon=True); self.thread.start()
+
+    def process(self):
+        frame=self.source.snapshot(); now=time.monotonic()
+        if frame is not None:
+            h,w=frame.shape[:2]
+            frame=cv2.resize(frame,(960,max(1,int(h*960/w))))
+        markers=detect(frame) if frame is not None else {}
+        status=self.health.update(frame,self.source.last_at,now,markers)
+        if status!=self.last_health:
+            self.last_health=status
+            self.engine.camera_health('shelf',status)
+        if frame is None: return
+        with self.store.session() as s: slots=s.scalars(select(ShelfSlot)).all()
+        for slot in slots:
+            roi=(slot.roi_x,slot.roi_y,slot.roi_w,slot.roi_h)
+            path=slot.empty_ref_path
+            if path and path not in self.refs: self.refs[path]=cv2.imread(path)
+            empty=self.refs.get(path) if path else None
+            vote=classify(frame,roi,slot.marker_id,markers,empty,self.c.empty_diff_thresh) if status=='OK' else 'UNKNOWN'
+            deb=self.debouncers.setdefault(slot.id,Debounce(self.c.debounce_n,self.c.debounce_m))
+            old=deb.state; new=deb.vote(vote)
+            self.states[slot.id]=new
+            if old!=new:
+                self.engine.slot_change(slot.id,old,new)
+                if new=='OCCLUDED': self.occluded_at[slot.id]=now
+                else:
+                    self.occluded_at.pop(slot.id,None); self.warned.discard(slot.id)
+            if new=='OCCLUDED' and now-self.occluded_at.get(slot.id,now)>=self.c.occluded_warn_s and slot.id not in self.warned:
+                self.warned.add(slot.id); self.engine.occluded(slot.id)
+            x,y,w,h=roi; fh,fw=frame.shape[:2]
+            color={'PRESENT':(90,150,35),'ABSENT':(50,50,215),'OCCLUDED':(30,165,215)}.get(new,(140,140,140))
+            cv2.rectangle(frame,(int(x*fw),int(y*fh)),(int((x+w)*fw),int((y+h)*fh)),color,2)
+            cv2.putText(frame,f'{slot.name} / #{slot.marker_id} / {new}',(int(x*fw),max(20,int(y*fh)-8)),0,.46,color,1)
+        with self.lock: self.annotated=jpeg(frame)
+
+    def run(self):
+        while not self.stop.is_set():
+            started=time.monotonic()
+            try: self.process()
+            except Exception: log.exception('Vision processing error')
+            self.stop.wait(max(.01,1/self.c.process_fps-(time.monotonic()-started)))
+
+    def close(self):
+        self.stop.set()
+        if self.thread: self.thread.join(3)
