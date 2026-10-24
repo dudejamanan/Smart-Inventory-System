@@ -12,7 +12,7 @@ Windows commands below run from `D:\inventorySystem`. Equivalent activated-venv 
 
 | Command | Actual result |
 |---|---|
-| `.\.venv\Scripts\python -m pytest -q` | **28 passed, 1 warning in 39.21s** |
+| `.\.venv\Scripts\python -m pytest -q` | **28 passed, 1 warning in 39.43s** |
 | `npm run build --prefix frontend` | TypeScript passed; **Vite v6.4.5 built**, 26 modules; final JS 164.04 kB, gzip 52.47 kB |
 | `npm audit --prefix frontend` | **found 0 vulnerabilities** |
 | `.\.venv\Scripts\python -m pip check` | **No broken requirements found.** |

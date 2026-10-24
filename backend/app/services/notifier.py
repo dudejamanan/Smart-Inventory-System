@@ -180,6 +180,7 @@ class NotificationQueue:
                     # Sandbox allows one message per three seconds, across kinds.
                     remaining = 3.1 - (time.monotonic() - self.last_send)
                     if remaining > 0 and self.stop.wait(remaining):
+                        self.update(ident, status="CANCELLED_SHUTDOWN")
                         return
                     self.last_send = time.monotonic()
                 sid, status = self.provider.send(body, url)
@@ -199,6 +200,7 @@ class NotificationQueue:
                     error_code=code or type(exc).__name__,
                 )
                 if attempt < 3 and self.stop.wait(2 ** (attempt - 1)):
+                    self.update(ident, status="CANCELLED_SHUTDOWN")
                     return
 
     def process(self, job):

@@ -1,5 +1,6 @@
 import argparse
 import io
+import common  # noqa: F401 -- adds backend/ to the standalone tool's import path
 import cv2
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -11,7 +12,7 @@ from app.services.frames import marker
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--size-cm", type=float, default=5)
-    p.add_argument("--output", default="markers.pdf")
+    p.add_argument("--output", default="data/markers.pdf")
     p.add_argument("--ids", default=",".join(map(str, range(30))))
     args = p.parse_args()
     if not 4 <= args.size_cm <= 12:

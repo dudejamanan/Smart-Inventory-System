@@ -216,7 +216,11 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 row(v)
                 for v in s.scalars(
                     select(model)
-                    .order_by(model.id.desc())
+                    .order_by(
+                        model.id.asc()
+                        if resource in {"personnel", "inventory", "slots", "zones"}
+                        else model.id.desc()
+                    )
                     .limit(max(1, min(limit, 500)))
                     .offset(max(0, offset))
                 )

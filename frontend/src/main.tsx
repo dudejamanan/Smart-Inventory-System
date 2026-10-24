@@ -1064,7 +1064,7 @@ function ZonePermissions({ act, tick }: { act: Act; tick: number }) {
       api(`personnel/${person}/zones`)
         .then((v) => setAllowed(v.zone_ids))
         .catch((e) => setError(String(e)));
-  }, [person, tick]);
+  }, [person]);
   return (
     <section className="panel">
       <h2>Zone permissions</h2>
