@@ -45,24 +45,32 @@ class Runtime:
         self.notifications=NotificationQueue(self.store,c,self.signer)
         self.vision=Vision(self.shelf,self.store,c,self.engine)
         self.engine.capture=self.capture.schedule
-        self.engine.alert=self.notifications.enqueue
+        self.engine.alert=self.schedule_alert
         self.engine.evidence=self.evidence.schedule
         self.engine.publish=self.publish
         self.notifications.photo=self.notification_photo
         self.worker=None
 
+    def schedule_alert(self,incident,kind,uid,source,seq):
+        # Preserve gate incident evidence even with an expired or broken notifier.
+        def associate():
+            try:
+                if source=='gate':
+                    path=self.capture.result(seq)
+                    if path:
+                        from app.db.models import CameraEvidence,FailedScan
+                        with self.store.session() as s:
+                            exists=s.scalar(select(CameraEvidence.id).where(CameraEvidence.path==str(path)))
+                            failed=s.scalar(select(FailedScan).where(FailedScan.photo_path==str(path)))
+                            if failed: failed.incident_id=incident
+                        if not exists: self.evidence.record(incident,'gate',path)
+            except Exception: log.exception('Gate incident photo association failed')
+            try: self.notifications.enqueue(incident,kind,uid,source,seq)
+            except Exception: log.exception('Notification scheduling failed')
+        self.evidence.pool.submit(associate)
+
     def notification_photo(self,source,seq):
-        if source=='gate':
-            path=self.capture.result(seq)
-            if path:
-                # Associate photos with gate incidents for dashboard and retention.
-                from app.db.models import FailedScan,CameraEvidence
-                with self.store.session() as s:
-                    failed=s.scalar(select(FailedScan).where(FailedScan.photo_path==str(path)))
-                    incident=failed.incident_id if failed else None
-                    exists=s.scalar(select(CameraEvidence.id).where(CameraEvidence.path==str(path)))
-                if incident and not exists: self.evidence.record(incident,'gate',path)
-            return path
+        if source=='gate': return self.capture.result(seq)
         frame=self.shelf.snapshot()
         if frame is None: return None
         path=self.c.data_dir/'outgoing'/f'shelf-{secrets.token_hex(8)}.jpg'
@@ -120,6 +128,8 @@ class Runtime:
 
     def status(self):
         now=time.monotonic()
+        if self.engine.fail_counter and now-self.engine.fail_started>=self.c.fail_window_s:
+            self.engine.fail_counter=0
         return {'simulate':self.simulate,'uptime_s':int(now-self.started),
                 'serial':{'connected':self.serial.connected and now-self.serial.last_rx<self.c.pc_lost_s,
                           'malformed':self.serial.malformed},

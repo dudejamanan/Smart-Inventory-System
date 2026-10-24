@@ -1,0 +1,9 @@
+# Repository conventions
+
+Use Python 3.11 and Node 22+ (Node 24 tested). Run one backend process only. The backend owns serial and camera threads. Keep UNO alarm decisions independent of databases, cameras and notification providers. Never use Arduino String, ArduinoJson, delay(), or dynamic allocation in firmware. Preserve the exact pin map in config.h and the 96-byte serial bound.
+
+Run `python -m pytest -q` at the repository root with the venv activated. Run `npm ci --prefix frontend` then `npm run build --prefix frontend`. Run `python tools/fake_scenarios.py` for all ten integration scenarios. Use `scripts/dev.ps1` on Windows or `bash scripts/dev.sh` elsewhere after dependency installation. The built dashboard is served at http://127.0.0.1:8000. Run Vite on port 5173 only during UI development.
+
+All UTC timestamps are Unix seconds. One SQLAlchemy session per short transaction, WAL and foreign keys enabled. Do not share ORM sessions across threads. Enqueue I/O; AUTH and REMOVAL must be sent before durable or camera operations. UI mutations need X-Warehouse-Request: 1 and authenticated cookies. Validate Twilio signatures against PUBLIC_BASE_URL, not arbitrary proxy headers.
+
+Never commit .env, evidence, local databases, build output, or credentials. Use `.env.example` and `scripts/init_env.py`. Pin versions and retain both lockfiles. Update docs/DECISIONS.md for meaningful tradeoffs. Hardware/credential-dependent checks belong in docs/HUMAN_TODO.md with blank real measurement results in docs/TEST_PLAN.md. Do not claim physical tests from simulator behavior.

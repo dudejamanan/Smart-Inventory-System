@@ -212,6 +212,15 @@ def create_app(config:Config|None=None,simulate=False,start_services=True):
         if not path.is_relative_to(c.data_dir.resolve()) or not path.is_file(): raise HTTPException(404)
         return FileResponse(path)
 
+    @app.get('/api/failed-scans/{ident}/photo')
+    def failed_photo(ident:int,request:Request):
+        admin(request)
+        with runtime.store.session() as s: failed=s.get(FailedScan,ident)
+        if not failed or not failed.photo_path: raise HTTPException(404,'No photo available')
+        path=Path(failed.photo_path).resolve()
+        if not path.is_relative_to(c.data_dir.resolve()) or not path.is_file(): raise HTTPException(404,'Photo expired')
+        return FileResponse(path,media_type='image/jpeg')
+
     @app.get('/api/gate/latest.jpg')
     def latest(request:Request):
         admin(request)

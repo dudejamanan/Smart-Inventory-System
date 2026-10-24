@@ -88,6 +88,7 @@ class NotificationQueue:
         self.lock=threading.Lock()
         self.thread=None
         self.photo=lambda source,seq:None
+        self.last_send=0.
 
     def enqueue(self,incident,kind,uid,source,seq):
         with self.lock:
@@ -113,6 +114,11 @@ class NotificationQueue:
         for attempt in range(1,4):
             self.update(ident,attempts=attempt,status='SENDING')
             try:
+                if isinstance(self.provider,TwilioNotifier):
+                    # Sandbox allows one message per three seconds, across kinds.
+                    remaining=3.1-(time.monotonic()-self.last_send)
+                    if remaining>0 and self.stop.wait(remaining): return
+                    self.last_send=time.monotonic()
                 sid,status=self.provider.send(body,url)
                 self.update(ident,provider_sid=sid,status=status)
                 return

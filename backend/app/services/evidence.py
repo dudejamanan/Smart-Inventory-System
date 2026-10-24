@@ -73,6 +73,8 @@ class Evidence:
             protected={i.id for i in s.scalars(select(Incident).where(Incident.keep.is_(True)))}
             kept_paths={e.path for e in s.scalars(select(CameraEvidence).where(CameraEvidence.incident_id.in_(protected)))} if protected else set()
             kept_paths.update(f.photo_path for f in s.scalars(select(FailedScan).where(FailedScan.incident_id.in_(protected))) if f.photo_path)
+            from app.db.models import ShelfSlot
+            kept_paths.update(v.empty_ref_path for v in s.scalars(select(ShelfSlot)) if v.empty_ref_path)
             for path in self.c.data_dir.rglob('*'):
                 if path.suffix.lower() not in {'.jpg','.mp4'} or str(path) in kept_paths: continue
                 if path.stat().st_mtime<cutoff:

@@ -9,3 +9,4 @@ frontend/dist/
 *.log
 .coverage
 build/
+frontend/*.tsbuildinfo

@@ -15,6 +15,7 @@ class Engine:
         self.whitelist={}
         self.current=None
         self.fail_counter=0
+        self.fail_started=0.
         self.alarm=False
         self.last_uid=None
         self.last_seq=0
@@ -85,6 +86,7 @@ class Engine:
                 self.fail_counter=0
             elif t=='FAIL':
                 self.fail_counter=m['n']
+                if m['n']==1: self.fail_started=time.monotonic()
                 with self.store.session() as s:
                     s.add(FailedScan(uid=m['uid'],counter=m['n']))
                 if self.c.whatsapp_on=='every_failure':
@@ -100,6 +102,7 @@ class Engine:
                     self.alert(ident,m['why'],self.last_uid,'gate',self.last_seq)
                 self.fail_counter=0
             elif t=='ALARM_OFF': self.alarm=False
+            elif t=='BUSY': self.fail_counter=0
             self.event(t,m)
 
     def slot_change(self,slot_id,old,new):
