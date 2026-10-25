@@ -25,7 +25,7 @@ def connect(port=None):
                     break
             except ValueError:
                 pass
-    board.write(encode({"t": "HB"}))
+    board.write(encode({"t": "HB", "n": 0}))
     return board
 
 
@@ -34,7 +34,7 @@ def wait_for(board, predicate, seconds=5, heartbeat=True, on_event=None):
     next_hb = 0
     while time.monotonic() < end:
         if heartbeat and time.monotonic() > next_hb:
-            board.write(encode({"t": "HB"}))
+            board.write(encode({"t": "HB", "n": 0}))
             next_hb = time.monotonic() + 2
         raw = board.read()
         if not raw:

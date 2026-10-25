@@ -16,16 +16,16 @@ def test_alarm_path_survives_camera_notifier_and_db_failure(tmp_path):
 
     e.capture = broken
     e.authorize({"t": "SCAN", "seq": 1, "uid": "A1B2C3D4"})
-    assert sent[-1] == {"t": "AUTH", "seq": 1, "ok": 1}
+    assert sent[-1] == {"t": "AUTH", "seq": 1, "r": "IN", "n": 1}
     e.authorize({"t": "SCAN", "seq": 2, "uid": "DEADBEEF"})
-    assert sent[-1]["ok"] == 0
+    assert sent[-1]["r"] == "DEN"
     # Even database failure happens after the removal command is sent.
     e.event = broken
     try:
         e.slot_change(1, "PRESENT", "ABSENT")
     except OSError:
         pass
-    assert sent[-1] == {"t": "REMOVAL", "slot": 1}
+    assert sent[-1] == {"t": "ALARM", "on": 1, "why": "SHELF_BREACH"}
 
 
 def test_fail_and_busy_logging(tmp_path):

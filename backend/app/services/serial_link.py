@@ -96,6 +96,11 @@ class SerialLink:
         self.threads = []
         self.on_connect = lambda: None
         self.sim_disconnected = False
+        self.firmware = None
+        self.firmware_error = None
+        self.telemetry = {}
+        self.prewarn = False
+        self.session_count = lambda: 0
 
     def send(self, m: dict) -> None:
         try:
@@ -135,6 +140,16 @@ class SerialLink:
                         continue
                     if m["t"] == "HB":
                         self.last_rx = time.monotonic()
+                        self.telemetry = m.copy()
+                    if m["t"] == "BOOT":
+                        self.firmware = m.copy()
+                        self.firmware_error = (
+                            None
+                            if tuple(map(int, m["fw"].split("."))) >= (2, 0)
+                            else "Firmware 2.0 required. Flash v2 before using this app."
+                        )
+                    if m["t"] == "PW":
+                        self.prewarn = m["st"] == "ON"
                     self.callback(m)
             except Exception:
                 log.exception("Serial disconnected; retrying")
@@ -149,7 +164,7 @@ class SerialLink:
         while not self.stop.is_set():
             try:
                 if time.monotonic() >= next_hb:
-                    self.send({"t": "HB"})
+                    self.send({"t": "HB", "n": self.session_count()})
                     next_hb = time.monotonic() + self.c.heartbeat_s
                 data = self.tx.get(timeout=0.1)
                 if self.transport and not self.sim_disconnected:

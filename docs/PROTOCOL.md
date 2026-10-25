@@ -1,67 +1,64 @@
-# Serial protocol v1.0
+# Serial protocol v2 (M2 hardware checkpoint)
 
-## Framing
+115200 baud, 8N1, LF-delimited flat ASCII JSON, **at most 96 bytes excluding LF** (CR counts). Uppercase UID hex is 8/14/20 characters. Hashes are exactly 8 uppercase hex characters. Sequences wrap at 16 bits. Both parsers reject malformed/oversized input and duplicate keys. UNO discards oversized lines through LF. No heap strings or JSON library on the board.
 
-115200 baud, 8 data bits, no parity, 1 stop bit, no flow control. UTF-8/ASCII newline-delimited flat JSON objects; send one object per line. Maximum **96 bytes excluding LF**, with optional CR counted in the limit. Compact JSON is preferred. UID is uppercase hex without spaces: 8, 14 or 20 characters (4, 7 or 10 bytes). Sequences are unsigned 16-bit numbers and wrap from 65535 to 0. Match AUTH against the pending sequence, never against a previous scan.
+v1 wire commands are incompatible. The backend parses an old BOOT only to show **Firmware 2.0 required**, and never grants it online authorization. The old specification is preserved in PROTOCOL_V1.md and tag v1.0. Internal SESSION events remain a temporary backend adapter at M2; they are never emitted by the v2 board. Multi-session/ledger policy begins at M3.
 
-UNO stores at most 96 bytes, discards an oversized line through its newline, and resumes on the next line. Invalid/unknown/duplicate JSON fields are rejected by the UNO's bounded parser. It accepts only unescaped strings and unsigned integers. The PC framing parser raises ValueError for invalid JSON, oversized lines, unknown messages, or invalid common fields; the serial reader increments its malformed counter and continues. Never include passwords or credentials in the protocol.
+## UNO to PC
 
-## UNO to laptop
-
-| Message | Meaning |
+| Message/example | Meaning |
 |---|---|
-| `{"t":"BOOT","fw":"1.0"}` | Reset/boot; laptop sends CFG and SYNC |
-| `{"t":"SCAN","uid":"A1B2C3D4","seq":12}` | New scan, awaiting AUTH for up to 1000 ms |
-| `{"t":"SESSION","state":"IN","uid":"A1B2C3D4"}` | Worker checked in |
-| `{"t":"SESSION","state":"OUT","uid":"A1B2C3D4"}` | Same worker checked out |
-| `{"t":"FAIL","uid":"DEADBEEF","n":2,"why":"DENY"}` | Denied or TIMEOUT; n is count before threshold reset |
-| `{"t":"BUSY","uid":"11223344"}` | Valid different worker while occupied; current session stays |
-| `{"t":"ALARM","why":"GATE_3_FAIL"}` | Gate threshold; other reasons SHELF_BREACH or PC_CMD |
-| `{"t":"ALARM_OFF","by":"TIMEOUT"}` | Alarm ended by timeout or ACK |
-| `{"t":"HB","up":12345,"s":"IN","pcok":1}` | Every 2 s; millis uptime, session state, laptop watchdog |
+| `{"t":"BOOT","fw":"2.0","rst":"PWR","rd":1,"bid":1}` | Reset cause PWR/EXT/BOR/WDT, reader count, persistent boot identifier |
+| `{"t":"SCAN","uid":"A1B2C3D4","seq":12,"rd":0}` | Reader 0 or 1; awaiting matching AUTH online |
+| `{"t":"FAIL","uid":"DEADBEEF","n":2,"why":"DENY"}` | DENY, TIMEOUT or NSS; count before threshold reset |
+| `{"t":"FB","seq":12,"r":"IN","ms":37}` | Output-start firmware latency from SCAN processing; no simulated physical measurements |
+| `{"t":"ALARM","why":"DEADMAN"}` | GATE_3_FAIL, SHELF_BREACH, DEADMAN or PC_CMD |
+| `{"t":"ALARM_OFF","by":"BTN"}` | TIMEOUT, ACK or enabled button long press |
+| `{"t":"PW","st":"ON"}` | ON, OFF or ESC; ESC precedes one DEADMAN alarm using shelf pattern |
+| `{"t":"HB","up":12345,"n":1,"pcok":1,"ram":1432,"lp":1840,"off":0}` | Every 2 s: millis, session count, PC watchdog, free RAM, maximum loop µs since previous HB, pending offline records |
+| `{"t":"BTN","k":"S"}` | S short release or L long release |
+| `{"t":"OFF","id":1,"bid":1,"h":"1234ABCD","e":"IN","ago":4}` | At-least-once offline replay; event IN/OUT/ISS/DEN, seconds ago |
+| `{"t":"WLOK","n":2}` | EEPROM whitelist committed |
+| `{"t":"WLERR","why":"CRC"}` | BUSY, COUNT, CRC, DUP, STATE or FULL; old committed whitelist remains usable on rejected upload |
 
-## Laptop to UNO
+## PC to UNO
 
-| Message | Action |
+| Message/example | Meaning |
 |---|---|
-| `{"t":"AUTH","seq":12,"ok":1}` | Authorize matching pending scan; ok=0 denies |
-| `{"t":"REMOVAL","slot":2}` | Sound SHELF_BREACH only when UNO session is OUT |
-| `{"t":"ACK"}` | Silence alarm immediately, emit ALARM_OFF ACK |
-| `{"t":"HB"}` | Every 2 s; renew PC watchdog |
-| `{"t":"SYNC","state":"IN","uid":"A1B2C3D4"}` | Restore open worker after laptop/board restart |
-| `{"t":"SYNC","state":"OUT"}` | Clear session |
-| `{"t":"CFG","fail_limit":3,"window_s":60,"alarm_s":30}` | Volatile configuration; resent on reconnect |
-| `{"t":"TEST","what":"green"}` | One-second output test: green, red, buzzer |
-| `{"t":"ALARM","on":1}` | Manual PC_CMD alarm |
+| `{"t":"AUTH","seq":12,"r":"IN","n":1}` | Result and authoritative open-session count; no local online toggle/BUSY |
+| `{"t":"HB","n":1}` / `{"t":"SYNC","n":1}` | Renew 6 s watchdog / mirror count (0–8) |
+| `{"t":"PW","on":1,"s":10}` / `{"t":"PW","on":0}` | Start grace or cancel; a later start cannot extend the earliest active deadline |
+| `{"t":"ALARM","on":1,"why":"SHELF_BREACH"}` | Immediate reason-coded local alarm |
+| `{"t":"ACK"}` | Stop alarm and prewarning |
+| `{"t":"CFG","fail_limit":3,"window_s":60,"alarm_s":30}` | Limits 1–20 / 1–3600 / 1–3600 |
+| `{"t":"TEST","what":"green"}` | One-second green/red/buzzer test |
+| `{"t":"WL","op":"CLR","n":2}` | Start RAM staging for expected entry count (0–100) |
+| `{"t":"WL","op":"ADD","h":"1234ABCD","lv":2,"it":0}` | Hash, level 1–3, is-item 0/1; duplicate hashes refused |
+| `{"t":"WL","op":"END","n":2,"ck":12345}` | Validate count/CRC before any whitelist EEPROM writes |
+| `{"t":"OFFOK","id":1}` | Acknowledge oldest offline record only after durable PC commit |
 
-CFG accepts fail_limit 1–20, window_s/alarm_s 1–3600. Alarm and authentication defaults in config.h match .env.example. AUTH_TIMEOUT_MS, HEARTBEAT_MS and PC_LOST_MS are compile-time UNO constants; changing laptop heartbeat alone does not recompile firmware. SYNC is trusted from the local serial owner. Opening the serial port normally resets an UNO: wait for BOOT and resynchronize. Only one program may open the port.
+## Feedback table
 
-## Timing and transitions
+| Result | Green / red | Buzzer | Failure counter |
+|---|---|---|---|
+| IN | Green steady while n>0 | 80 ms beep | Reset |
+| OUT | Two green 150 ms on/off pulses | Two 80 ms beeps, 120 ms gap | Reset |
+| ISS | Three green 70 ms on/off pulses | One 80 ms beep | Reset |
+| RET | Two green 250 ms on/off pulses | One 80 ms beep | Reset |
+| DEN | Red 2 s | None | Increment |
+| NSS | Red 2 s | None | Increment |
+| PRM | Red 2 s | Two 80 ms beeps, 120 ms gap | Unchanged |
 
-```text
-OUT + valid A -> SESSION IN A -> green steady
-IN A + valid A -> SESSION OUT A -> two green flashes
-IN A + valid B -> BUSY B (failure count resets)
-SCAN -> no matching AUTH in 1 s -> FAIL TIMEOUT (default compile flag)
-DENY/TIMEOUT -> red 2 s, consecutive counter increments
-third failure within 60 s of first -> alarm 30 s, counter resets
-any valid scan / expired window -> counter resets
-OUT + REMOVAL -> alarm SHELF_BREACH
-IN + REMOVAL -> ignored
-alarm + ACK / timeout -> ALARM_OFF
-no PC HB for 6 s -> alternate red/green; AUTH refused until HB returns
-```
+The table is stored in PROGMEM. Success resets consecutive failures; 3 failures within 60 s of the first alarms and resets count. No AUTH by 1000 ms counts TIMEOUT. A PC-lost tap uses EEPROM policy at M2 rather than waiting for AUTH. Debounce is 1.5 s per reader's last UID. A pending online request prevents overlapping scans.
 
-Alarm output priority overrides watchdog/test indications. Alarm buzzer alternates 200 ms on/off and red blinks every 100 ms. Timer comparisons use unsigned subtraction for millis rollover. Remove and re-present a card; repeated identical reads within 1.5 s are ignored.
+PW red flashes at 1 Hz and chirps for 80 ms each second; at its deadline it escalates locally even with PC dead. Alarm red flashes 100 ms on/off. GATE_3_FAIL/PC_CMD buzz 200/200 ms; SHELF_BREACH/DEADMAN buzz 600/300 ms, starting immediately. Button D4 uses INPUT_PULLUP and 30 ms debounce. Short release mutes only sound for 30 s; a >=1.5 s hold then release ACKs if BTN_ACK_ENABLED=1. Alarm/feedback timers use unsigned subtraction across millis rollover. Alarm output takes priority over tests and feedback; mute silences sound but not visual alarm/logging.
 
-## Example exchange
+## Hash, EEPROM and replay contract
 
-```text
-UNO > {"t":"SCAN","uid":"A1B2C3D4","seq":12}
-PC  > {"t":"AUTH","seq":12,"ok":1}
-UNO > {"t":"SESSION","state":"IN","uid":"A1B2C3D4"}
-PC  > {"t":"REMOVAL","slot":2}
-      (no alarm because worker is IN)
-```
+FNV-1a starts 2166136261 and for each **uppercase UID character byte** applies `(hash XOR byte) * 16777619 modulo 2^32`. Hashing raw RFID bytes would be incompatible. CRC16-CCITT-FALSE uses polynomial 0x1021, initial 0xFFFF, no reflection/final XOR; `123456789` -> 0x29B1. CRC covers `[version=2,count]` followed by each hash as four **little-endian bytes** and flag byte `(level & 3) | (is_item ? 0x80 : 0)` in upload order.
 
-Run `python tools/protocol_conformance.py --simulate` first, then `--port COM3` (or `/dev/ttyACM0`) with the app stopped. The real-board script asks for physical card taps and asserts matching replies. It does not substitute synthetic SCAN messages for real RFID reads.
+EEPROM addresses: 0–1 magic W2; 2 version; 3 count; 4 onward packed entries, then two little-endian CRC bytes. Maximum end is byte 505. A separate boot counter uses 1016–1023. Whitelist commit invalidates magic, uses EEPROM.update, and publishes magic last. Interrupted power during commit fails closed on reboot. WL CLR/ADD never write EEPROM. BUSY protects active alarm/PW/auth or unacknowledged replay. Staging is discarded if PC disappears; the previous committed list stays intact.
+
+Offline mode permits EEPROM badges into an in-RAM set of at most eight hashes and item ISS when the attributed badge meets level. Recent badge within 30 s wins; otherwise a sole offline badge is used; ambiguous/no owner gives NSS. Sixteen RAM log entries are retained until ACK, oldest-first replay each second. A full ring denies new offline operations rather than overwriting history. The PC commits/deduplicates by configured board identity, boot id and event id before OFFOK. Power loss destroys the RAM log and offline session identities. SYNC n cannot restore badge identities; a restored PC session must be tapped again to establish offline identity. Offline shelf alarms and an audited offline item ledger are unavailable.
+
+Run `python tools/protocol_conformance.py --simulate`; real mode `--port COM3` with the app stopped. M2 hardware instructions explain the explicit whitelist fixture test and normal cache synchronization.

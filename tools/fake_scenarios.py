@@ -137,7 +137,7 @@ def run_scenarios(data_dir, report=print):
     restarted = create_app(c, simulate=True)
     with TestClient(restarted) as client:
         client.post("/api/login", json={"password": c.admin_password})
-        wait(lambda: restarted.state.runtime.serial.board.uid == "A1B2C3D4")
+        wait(lambda: restarted.state.runtime.serial.board.n == 1)
         assert client.get("/api/status").json()["session"]["name"] == worker
         report("PASS restart with open session -> database restore and SYNC")
 

@@ -244,6 +244,8 @@ function App() {
             <button onClick={() => setError("")}>Dismiss</button>
           </div>
         )}
+        {status.serial?.error&&<div className="error" role="alert">{status.serial.error}</div>}
+        {status.prewarn&&<div className="warning" role="alert">Removal awaiting declaration. The gate controller will escalate if the grace timer expires.</div>}
         {status.alarm && (
           <div className="alarm" role="alert">
             <div>
@@ -550,6 +552,11 @@ function App() {
                   status.serial?.connected ? "Connected" : "Disconnected",
                 ],
                 ["Malformed serial lines", status.serial?.malformed],
+                ['Firmware',status.serial?.firmware?.fw||'Awaiting BOOT'],
+                ['Last reset',status.serial?.firmware?.rst||'Unknown'],
+                ['Free RAM (board)',status.simulate?'Synthetic: not a measurement':status.serial?.telemetry?.ram??'Unavailable'],
+                ['Maximum loop time (µs)',status.simulate?'Synthetic: not a measurement':status.serial?.telemetry?.lp??'Unavailable'],
+                ['Offline events pending',status.serial?.telemetry?.off??0],
                 ["Gate camera", status.gate_camera],
                 ["Shelf camera", status.shelf_camera],
                 ["Notification provider", status.notifier],

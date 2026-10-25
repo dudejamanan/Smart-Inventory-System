@@ -74,6 +74,7 @@ class Runtime:
         self.engine = Engine(self.store, c, lambda m: self.serial.send(m))
         self.serial = SerialLink(c, self.on_serial, simulate)
         self.serial.on_connect = self.engine.sync
+        self.serial.session_count = lambda: int(self.engine.current is not None)
         self.gate = (
             SyntheticShelfSource(gate=True)
             if simulate
@@ -146,6 +147,11 @@ class Runtime:
         return path
 
     def on_serial(self, m):
+        if m["t"] == "BOOT":
+            self.engine.firmware_compatible = tuple(map(int, m["fw"].split("."))) >= (
+                2,
+                0,
+            )
         self.engine.authorize(m)
         try:
             self.events.put_nowait(m)
@@ -244,7 +250,12 @@ class Runtime:
                 "connected": self.serial.connected
                 and now - self.serial.last_rx < self.c.pc_lost_s,
                 "malformed": self.serial.malformed,
+                "firmware": self.serial.firmware,
+                "error": self.serial.firmware_error,
+                "telemetry": self.serial.telemetry,
             },
+            "prewarn": self.serial.prewarn,
+            "checkpoint": "v2 M2 hardware checkpoint; ledger/reconciliation pending",
             "session": self.engine.current,
             "alarm": self.engine.alarm,
             "fail_counter": self.engine.fail_counter,

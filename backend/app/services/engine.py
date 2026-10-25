@@ -23,6 +23,8 @@ class Engine:
         self.store, self.c, self.send = store, config, send
         self.lock = threading.RLock()
         self.auth_lock = threading.RLock()
+        self.pending_results = {}
+        self.firmware_compatible = True
         self.whitelist = {}
         self.current = None
         self.fail_counter = 0
@@ -65,10 +67,7 @@ class Engine:
                 "alarm_s": self.c.alarm_s,
             }
         )
-        m = {"t": "SYNC", "state": "OUT"}
-        if self.current:
-            m.update(state="IN", uid=self.current["uid"])
-        self.send(m)
+        self.send({"t": "SYNC", "n": int(self.current is not None)})
 
     def event(self, kind, payload, severity="INFO"):
         with self.store.session() as s:
@@ -92,8 +91,28 @@ class Engine:
         """Called directly on serial reader before queuing durable processing."""
         if m["t"] == "SCAN":
             with self.auth_lock:
-                ok = int(m["uid"] in self.whitelist)
-            self.send({"t": "AUTH", "seq": m["seq"], "ok": ok})
+                ok = bool(m["uid"] in self.whitelist and self.firmware_compatible)
+                current = self.current
+                result = (
+                    "DEN"
+                    if not ok
+                    else "IN"
+                    if not current
+                    else "OUT"
+                    if current["uid"] == m["uid"]
+                    else "PRM"
+                )
+                n = (
+                    1
+                    if result == "IN"
+                    else 0
+                    if result == "OUT"
+                    else int(current is not None)
+                )
+                self.pending_results[m["seq"]] = (m["uid"], result)
+                if len(self.pending_results) > 256:
+                    self.pending_results.pop(next(iter(self.pending_results)))
+            self.send({"t": "AUTH", "seq": m["seq"], "r": result, "n": n})
             if self.enrol:
                 self.enrolled_uid = m["uid"]
                 self.enrol = False
@@ -109,6 +128,13 @@ class Engine:
                 self.last_uid, self.last_seq = m["uid"], m["seq"]
             if t == "BOOT":
                 self.sync()
+            elif t == "FB":
+                with self.auth_lock:
+                    issued = self.pending_results.pop(m["seq"], None)
+                if issued and issued[1] == m["r"] and m["r"] in {"IN", "OUT"}:
+                    self.handle({"t": "SESSION", "state": m["r"], "uid": issued[0]})
+                if m["r"] not in {"DEN", "NSS", "PRM"}:
+                    self.fail_counter = 0
             elif t == "SESSION":
                 with self.store.session() as s:
                     if m["state"] == "IN" and not self.current:
@@ -139,7 +165,11 @@ class Engine:
                     self.alert(ident, "GATE_FAILURE", m["uid"], "gate", self.last_seq)
             elif t == "ALARM":
                 self.alarm = True
-                if m["why"] != "SHELF_BREACH":
+                if m["why"] == "DEADMAN":
+                    ident = self.incident("DEADMAN", "CRITICAL")
+                    self.evidence(ident)
+                    self.alert(ident, "DEADMAN", None, "shelf", None)
+                elif m["why"] != "SHELF_BREACH":
                     ident = self.incident(m["why"], "CRITICAL", uid=self.last_uid)
                     with self.store.session() as s:
                         fails = s.scalars(
@@ -162,8 +192,8 @@ class Engine:
         self, slot_id: int, old: str, new: str, details: dict | None = None
     ) -> None:
         # Do not wait for a DB transaction holding the rules lock.
-        if new == "ABSENT":
-            self.send({"t": "REMOVAL", "slot": slot_id})
+        if new == "ABSENT" and self.current is None:
+            self.send({"t": "ALARM", "on": 1, "why": "SHELF_BREACH"})
         with self.lock:
             worker = self.current.copy() if self.current else None
             payload = {

@@ -1,6 +1,6 @@
 import pytest
-from app.sim.arduino import SimulatedArduino
-from app.services.protocol import parse, encode
+from app.sim.legacy_arduino import SimulatedArduino
+from app.services.legacy_protocol import parse, encode
 
 
 class Clock:

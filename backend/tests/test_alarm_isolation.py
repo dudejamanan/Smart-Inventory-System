@@ -30,7 +30,11 @@ def test_auth_and_removal_dispatch_do_not_wait_for_rules_lock(tmp_path):
         assert signal.wait(1), "REMOVAL blocked on a database/rules lock"
     auth.join(2)
     removal.join(2)
-    assert sent[0]["t"] == "AUTH" and sent[1]["t"] == "REMOVAL"
+    assert sent[0]["t"] == "AUTH" and sent[1] == {
+        "t": "ALARM",
+        "on": 1,
+        "why": "SHELF_BREACH",
+    }
     store.engine.dispose()
 
 
@@ -66,5 +70,5 @@ def test_loaded_vision_still_sends_removal_with_database_down(tmp_path, monkeypa
             vision.process()
         except OSError:
             pass
-    assert {"t": "REMOVAL", "slot": 1} in sent
+    assert {"t": "ALARM", "on": 1, "why": "SHELF_BREACH"} in sent
     store.engine.dispose()
