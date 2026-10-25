@@ -1,5 +1,7 @@
 # Hardware guide
 
+**v2 M2 users:** this remains the v1 assembly/reference guide. Follow [V2_HARDWARE_CHECKPOINT](V2_HARDWARE_CHECKPOINT.md) for authoritative v2 pin additions, two-reader power/dividers, button, watchdog, uploads, offline/replay and exact ordered tests. The old BUSY/session and protocol examples below apply only to tag v1.0.
+
 ## 1. Parts and vocabulary
 
 A **pin** is an electrical connection on a board. **GND** is the shared zero-volt reference. A **breadboard** connects holes internally so you can prototype without soldering. An **LED** is a light-emitting diode; it passes current in one direction. A **resistor** limits current. An **RFID UID** is a card's identifier; this project checks it against a whitelist.

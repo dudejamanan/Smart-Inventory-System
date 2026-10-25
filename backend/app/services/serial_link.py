@@ -62,8 +62,9 @@ class RealSerial:
 
 
 class SimTransport:
-    def __init__(self, board: SimulatedArduino):
+    def __init__(self, board: SimulatedArduino, persist=lambda snapshot: None):
         self.board, self.lock = board, threading.RLock()
+        self.persist = persist
 
     def read(self) -> bytes:
         with self.lock:
@@ -75,7 +76,10 @@ class SimTransport:
 
     def write(self, data: bytes) -> None:
         with self.lock:
+            before = bytes(self.board.eeprom)
             self.board.receive(parse(data))
+            if self.board.eeprom != before:
+                self.persist(bytes(self.board.eeprom))
 
     def close(self) -> None:
         pass
@@ -84,9 +88,25 @@ class SimTransport:
 class SerialLink:
     def __init__(self, config, callback, simulate=False):
         self.c, self.callback, self.simulate = config, callback, simulate
+        self.eeprom_queue = queue.Queue(maxsize=1)
+        self.eeprom_stop = threading.Event()
+        self.eeprom_thread = None
+        self.eeprom_path = config.data_dir / "sim-eeprom.bin"
+        image = None
+        if simulate and self.eeprom_path.exists():
+            raw = self.eeprom_path.read_bytes()
+            if len(raw) != 1024:
+                raise ValueError(
+                    "Invalid simulated EEPROM image length; back up and inspect sim-eeprom.bin"
+                )
+            image = bytearray(raw)
         self.board = (
-            SimulatedArduino(config.model_copy(deep=True)) if simulate else None
+            SimulatedArduino(config.model_copy(deep=True), eeprom=image)
+            if simulate
+            else None
         )
+        if self.board:
+            self.queue_eeprom(bytes(self.board.eeprom))
         self.transport = None
         self.tx = queue.Queue(maxsize=256)
         self.stop = threading.Event()
@@ -109,9 +129,15 @@ class SerialLink:
             log.error("Serial output queue full")
 
     def start(self) -> None:
-        for target in (self.reader, self.writer):
+        for target in (
+            self.reader,
+            self.writer,
+            *((self.eeprom_writer,) if self.simulate else ()),
+        ):
             t = threading.Thread(target=target, daemon=True)
             self.threads.append(t)
+            if target == self.eeprom_writer:
+                self.eeprom_thread = t
             t.start()
 
     def reader(self) -> None:
@@ -119,7 +145,7 @@ class SerialLink:
             try:
                 if not self.transport:
                     self.transport = (
-                        SimTransport(self.board)
+                        SimTransport(self.board, self.queue_eeprom)
                         if self.simulate
                         else RealSerial(self.c)
                     )
@@ -129,6 +155,7 @@ class SerialLink:
                     if self.board:
                         with self.transport.lock:
                             self.board.tick()
+                            self.board.events.clear()  # UART output is lost while disconnected; OFF ring is retained.
                     self.stop.wait(0.1)
                     continue
                 raw = self.transport.read()
@@ -150,6 +177,8 @@ class SerialLink:
                         )
                     if m["t"] == "PW":
                         self.prewarn = m["st"] == "ON"
+                    if m["t"] in {"ALARM", "ALARM_OFF"}:
+                        self.prewarn = False
                     self.callback(m)
             except Exception:
                 log.exception("Serial disconnected; retrying")
@@ -174,9 +203,41 @@ class SerialLink:
             except Exception:
                 log.exception("Serial write failed")
 
+    def queue_eeprom(self, snapshot: bytes) -> None:
+        try:
+            self.eeprom_queue.put_nowait(snapshot)
+        except queue.Full:
+            try:
+                self.eeprom_queue.get_nowait()
+                self.eeprom_queue.task_done()
+            except queue.Empty:
+                pass
+            self.eeprom_queue.put_nowait(snapshot)
+
+    def eeprom_writer(self) -> None:
+        # Simulation-only persistence never blocks serial AUTH or board timer threads.
+        while not self.eeprom_stop.is_set() or not self.eeprom_queue.empty():
+            try:
+                snapshot = self.eeprom_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            try:
+                self.eeprom_path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = self.eeprom_path.with_suffix(".tmp")
+                temporary.write_bytes(snapshot)
+                temporary.replace(self.eeprom_path)
+            except OSError:
+                log.exception("Simulated EEPROM persistence failed")
+            finally:
+                self.eeprom_queue.task_done()
+
     def close(self) -> None:
         self.stop.set()
         for t in self.threads:
-            t.join(2)
+            if t is not self.eeprom_thread:
+                t.join(2)
+        self.eeprom_stop.set()
+        if self.eeprom_thread:
+            self.eeprom_thread.join(2)
         if self.transport:
             self.transport.close()

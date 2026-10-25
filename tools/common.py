@@ -15,17 +15,23 @@ def connect(port=None):
     if port:
         c.serial_port = port
     board = RealSerial(c)
+    board.boot = None
     # Opening serial resets UNO. Pump until BOOT or wait two seconds.
     deadline = time.monotonic() + 3
     while time.monotonic() < deadline:
         raw = board.read()
         if raw:
             try:
-                if parse(raw)["t"] == "BOOT":
+                message = parse(raw)
+                if message["t"] == "BOOT":
+                    board.boot = message
                     break
             except ValueError:
                 pass
     board.write(encode({"t": "HB", "n": 0}))
+    if not board.boot or tuple(map(int, board.boot["fw"].split("."))) < (2, 0):
+        board.close()
+        raise OSError("Expected firmware 2.0 BOOT; reset/reconnect after flashing v2")
     return board
 
 

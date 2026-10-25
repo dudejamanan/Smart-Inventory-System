@@ -1,29 +1,37 @@
-# Human checklist (do in order)
+# Your ordered checklist: v2 M2 hardware checkpoint
 
-Everything below needs your equipment, physical observations, local installation choice, or private accounts. Tick only after the success check in the linked section. Software was built/tested in this workspace; installation on another laptop still needs verification.
+The useful v2 prompt is being followed **through M2**, where it explicitly requires a stop for your physical tests. Read [V2_HARDWARE_CHECKPOINT.md](V2_HARDWARE_CHECKPOINT.md) as the primary guide. The original v1 checklist is preserved in HUMAN_TODO_V1.md. Nothing here claims that an actual board was flashed or that physical tests passed.
 
-1. [ ] Read the safety and voltage rules before powering anything: [Hardware §3](HARDWARE_GUIDE.md#3-rc522-voltage-and-level-shifting), [§11](HARDWARE_GUIDE.md#11-safety).
-2. [ ] Collect and verify all parts, especially 13.56 MHz cards, 220-ohm LED resistors, 1k/2k dividers, and the buzzer's rated current/type: [Hardware §1](HARDWARE_GUIDE.md#1-parts-and-vocabulary), [§4](HARDWARE_GUIDE.md#4-leds-and-buzzer).
-3. [ ] Install Python 3.11, Node 22/24, and project dependencies on the demo laptop; build the dashboard: [Setup §1–2](SETUP_GUIDE.md#1-install-runtimes).
-4. [ ] Generate your own .env password and secrets with init_env.py; keep the file private: [Setup §2](SETUP_GUIDE.md#2-install-and-build).
-5. [ ] Start simulation, try the Live controls, run pytest and all ten scenarios: [Setup §3](SETUP_GUIDE.md#3-run-simulation-first), [Test §1](TEST_PLAN.md#1-automated-software-checks).
-6. [ ] Wire the circuit **with USB unplugged**, including RC522 level protection, common ground, LEDs and suitable buzzer/driver; obtain an instructor/partner check: [Hardware §2–5](HARDWARE_GUIDE.md#2-pin-by-pin-wiring).
-7. [ ] Power by USB and verify approximately 3.3 V at RC522 and no heating: [Hardware §5](HARDWARE_GUIDE.md#5-assemble-safely-and-check-power).
-8. [ ] Install Arduino IDE/CLI, AVR UNO core and pinned MFRC522 library; select actual port and board: [Hardware §6](HARDWARE_GUIDE.md#6-install-tools-and-upload).
-9. [ ] Upload rfid_test, read and record each card's UID; upload led_buzzer_test and observe green/red/sound/silence: [Hardware §6](HARDWARE_GUIDE.md#6-install-tools-and-upload).
-10. [ ] Set active/passive flag, upload main sketch, confirm BOOT/HB, close Serial Monitor: [Hardware §6](HARDWARE_GUIDE.md#6-install-tools-and-upload).
-11. [ ] Run hw_selftest and real protocol_conformance with app stopped, record observed passes/failures: [Test §2](TEST_PLAN.md#2-hardware-readiness).
-12. [ ] Mount gate camera/reader at an appropriate face/tap position and obtain demo-photo consent: [Hardware §8](HARDWARE_GUIDE.md#8-gate-layout).
-13. [ ] Install/configure phone streaming app, same-network URL, charger, focus/exposure and mount; test camera_test.py: [Phone §1–3](PHONE_CAMERA_SETUP.md#1-select-and-connect-a-stream).
-14. [ ] Use a clean real DATA_DIR so fake demo UIDs/synthetic calibration do not authorize real cards. Set actual serial/camera values and start hardware mode: [Setup §4](SETUP_GUIDE.md#4-configure-real-hardware).
-15. [ ] Enrol real personnel; test IN/OUT/BUSY and one/three denied scans: [Hardware §7](HARDWARE_GUIDE.md#7-enrol-cards-and-verify-gate-behavior).
-16. [ ] Add inventory/slots, generate marker PDF, print at 100%, measure 4–5 cm squares, attach unique item markers and fixed anchors: [Hardware §9](HARDWARE_GUIDE.md#9-shelf-layout), [Calibration §1](CALIBRATION_GUIDE.md#1-prepare-the-scene).
-17. [ ] Draw each ROI, capture empty references with hands/boxes removed, tune/check PRESENT/ABSENT/OCCLUDED: [Calibration §2–5](CALIBRATION_GUIDE.md#2-draw-and-save-each-roi).
-18. [ ] Create your Twilio account/testing sandbox, join from owner phone, copy private SID/token into .env: [Twilio §1](TWILIO_SETUP.md#1-account-and-sandbox).
-19. [ ] Install/configure an HTTPS tunnel and PUBLIC_BASE_URL; verify public dashboard login and set correct signed webhook URLs: [Twilio §2–3](TWILIO_SETUP.md#2-public-https-access).
-20. [ ] Send an inbound WhatsApp hello and verify positive timer; run explicit twilio_test.py and check actual text/photo plus delivery statuses: [Twilio §4](TWILIO_SETUP.md#4-session-and-delivery-test).
-21. [ ] Run every real test in the worksheet, including disconnect/covered camera and independent-alarm tests; fill actual results: [Test §3](TEST_PLAN.md#3-functional-worksheet-fill-on-actual-hardware).
-22. [ ] Borrow lab logic analyzer/probes if latency measurements are required. Record real traces, export CSV and run latency_bench.py; do not invent timings: [Test §4](TEST_PLAN.md#4-measure-physical-latency).
-23. [ ] Check evidence files and recompute a SHA-256 (PowerShell `Get-FileHash -Algorithm SHA256 path`); test Keep/retention only on a backed-up dataset: [Test §3](TEST_PLAN.md#3-functional-worksheet-fill-on-actual-hardware), [Setup §6](SETUP_GUIDE.md#6-configuration-and-maintenance).
-24. [ ] Rehearse in final lighting, reopen owner service window/rejoin sandbox if necessary, check initial OUT/PRESENT/OK state, acknowledge alarms, and preserve measured results: [Test §5](TEST_PLAN.md#5-acceptance-and-demo-rehearsal).
-25. [ ] Write your report with real photos/results using [REPORT_NOTES](REPORT_NOTES.md); remove credentials and private faces/phone numbers from shared material, then stop the tunnel and back up data after the demo.
+## While Codex works / preparation
+
+1. [ ] Collect the v1 components plus one normally-open push button for D4, a checked buzzer transistor stage, and optional second RC522. Read safety/3.3 V rules in HARDWARE_GUIDE and checkpoint §2.
+2. [ ] Install Python 3.11, Node 22/24, Arduino IDE/CLI and the UNO USB driver if needed. Select AVR core 1.8.6 and MFRC522 1.4.12 (SETUP_GUIDE and checkpoint §1/§4).
+3. [ ] Back up real .env/data privately. Generate your own secrets with init_env.py if missing. Do not share tokens, real photos or phone numbers. Do not reset/erase an evidence database to fix a software problem (checkpoint §1).
+4. [ ] With USB unplugged, wire reader 0, LED resistors, buzzer driver and D4 button. Have a lab partner/instructor compare every pin and divider against checkpoint §2.
+5. [ ] Measure RC522 supply at approximately 3.3 V; inspect common ground and LED polarity. Stop/unplug if hot components or unstable USB appear (HARDWARE_GUIDE §5).
+6. [ ] Label two different compatible physical tags for the offline fixture test. Read their actual uppercase UIDs with rfid_test; the example UIDs in commands are not promises about your cards (checkpoint §4/§6).
+7. [ ] If using two readers, plan the separate regulated 3.3 V power budget and six shifted output signals with your instructor. Do not power two modules blindly from the UNO 3.3 V pin (checkpoint §3).
+8. [ ] Mount the phone and check a direct local stream if desired. Campus Wi-Fi may isolate devices; use a private phone hotspot as described in PHONE_CAMERA_SETUP. New reveal/learn-shelf calibration is not ready until M6.
+
+## After software completion: execute these in order
+
+9. [ ] Confirm branch v2 and preserved tag v1.0. Stop the backend and close every serial monitor/tool (checkpoint §1).
+10. [ ] Run pytest, frontend build and `python tools/compile_firmware.py`; record actual output. The compile helper checks four variants and six unit sketches but never uploads (checkpoint §4).
+11. [ ] Upload/run reader, LED/buzzer, button and EEPROM/hash sketches. Copy the two required headers for eeprom_test. Record observed PASS text and physical output behavior (checkpoint §4).
+12. [ ] Check watchdog-safe bootloader first; run wdt_test only under the guide's instructions. If reset loops occur, recover with USE_WDT=0 or instructor-assisted bootloader repair. Record actual reset behavior (checkpoint §4).
+13. [ ] Choose one-reader/two-reader and active/passive settings, then **upload main fw 2.0** to your actual COM port. Confirm BOOT fw/rd/bid and HB, then close monitor (checkpoint §4).
+14. [ ] Run real protocol_conformance with the backend stopped. Confirm the physical result patterns and local DEADMAN escalation while heartbeats stop; acknowledge afterward (checkpoint §5).
+15. [ ] Run hw_selftest with matching --readers. Observe each light/sound, both button actions, actual telemetry and optional second reader. Do not type y for an unobserved result (checkpoint §5).
+16. [ ] Explicitly run the two-tag offline fixture with your real UIDs. It overwrites the cache. Keep USB/serial open while heartbeats pause; verify badge IN, item ISS, badge OUT and durable duplicate-safe replay into data/hardware-replay (checkpoint §6).
+17. [ ] Start normal backend hardware mode with a clean real DATA_DIR. Enrol/save real badges, wait for offline cache CURRENT, verify count and firmware telemetry, and restore the normal cache after fixture use (checkpoint §7).
+18. [ ] Test unknown card once/three times and camera/notifier outages. Confirm local alarm behavior physically; remember that button mute suppresses sound for 30 s and that no new shelf detection exists while the PC is absent (checkpoint §5/§7).
+19. [ ] Collect actual FB/video/instrument samples and fill MEASUREMENTS.md plus TEST_PLAN's M2 worksheet. Keep raw traces/output under data or in a private report folder (checkpoint §8).
+20. [ ] **Stop at M2 and provide the hardware results**: board/bootloader, variant, voltages, reader IDs, button results, reset cause, RAM/loop telemetry, offline fixture/replay outcome and any failure output. That is the intended checkpoint before M3–M8.
+
+## Later, after M3–M8 are implemented
+
+- [ ] Enrol real item tags/clearance levels; validate multiple TTL sessions and ledger/CSV.
+- [ ] Test matched/late/unissued/denied removal and return reconciliation before claiming strict security.
+- [ ] Configure Telegram privately when its notifier ships; keep WhatsApp optional and test real delivery.
+- [ ] Print reveal/anchor marker sheets and run the guided learned-shelf calibration when M6 ships.
+- [ ] Follow the eventual full v2 demo script and complete end-to-end acceptance. The requested 18+ v2 scenarios are not all implemented at M2.

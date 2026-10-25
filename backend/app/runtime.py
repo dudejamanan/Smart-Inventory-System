@@ -20,6 +20,7 @@ from app.services.vision import Vision, crop
 from app.services.capture import GateCapture
 from app.services.evidence import Evidence
 from app.services.notifier import MediaSigner, NotificationQueue
+from app.services.offline import OfflineCoordinator, badge_entries
 
 log = logging.getLogger(__name__)
 SAFE_SETTINGS = {
@@ -75,6 +76,11 @@ class Runtime:
         self.serial = SerialLink(c, self.on_serial, simulate)
         self.serial.on_connect = self.engine.sync
         self.serial.session_count = lambda: int(self.engine.current is not None)
+        self.engine.firmware_compatible = False
+        self.offline = OfflineCoordinator(
+            self.store, self.serial, lambda: badge_entries(self.engine), c.board_id
+        )
+        self.engine.whitelist_changed = self.offline.request
         self.gate = (
             SyntheticShelfSource(gate=True)
             if simulate
@@ -147,6 +153,7 @@ class Runtime:
         return path
 
     def on_serial(self, m):
+        self.offline.on_message(m)
         if m["t"] == "BOOT":
             self.engine.firmware_compatible = tuple(map(int, m["fw"].split("."))) >= (
                 2,
@@ -180,7 +187,10 @@ class Runtime:
             try:
                 m = self.events.get(timeout=0.1)
                 try:
-                    self.engine.handle(m)
+                    if m["t"] == "OFF":
+                        self.offline.replay(m)
+                    else:
+                        self.engine.handle(m)
                 finally:
                     self.events.task_done()
             except queue.Empty:
@@ -233,6 +243,7 @@ class Runtime:
         self.worker = threading.Thread(target=self.run_events, daemon=True)
         self.worker.start()
         self.serial.start()
+        self.offline.start()
         self.vision.start()
 
     def status(self):
@@ -256,6 +267,7 @@ class Runtime:
             },
             "prewarn": self.serial.prewarn,
             "checkpoint": "v2 M2 hardware checkpoint; ledger/reconciliation pending",
+            "offline_whitelist": self.offline.status(),
             "session": self.engine.current,
             "alarm": self.engine.alarm,
             "fail_counter": self.engine.fail_counter,
@@ -271,6 +283,7 @@ class Runtime:
 
     def close(self):
         self.vision.close()
+        self.offline.close()
         self.serial.close()
         self.stop.set()
         if self.worker:

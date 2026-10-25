@@ -25,6 +25,7 @@ class Engine:
         self.auth_lock = threading.RLock()
         self.pending_results = {}
         self.firmware_compatible = True
+        self.whitelist_changed = lambda: None
         self.whitelist = {}
         self.current = None
         self.fail_counter = 0
@@ -57,6 +58,7 @@ class Engine:
             ).all()
             with self.auth_lock:
                 self.whitelist = {p.uid: {"id": p.id, "name": p.name} for p in people}
+        self.whitelist_changed()
 
     def sync(self):
         self.send(

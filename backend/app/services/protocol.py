@@ -89,7 +89,7 @@ def parse(line: bytes) -> dict:
         return result
 
     try:
-        obj = json.loads(raw, object_pairs_hook=unique)
+        obj = json.loads(raw.decode("ascii"), object_pairs_hook=unique)
     except (ValueError, UnicodeDecodeError) as exc:
         raise ValueError("Malformed JSON") from exc
     if (

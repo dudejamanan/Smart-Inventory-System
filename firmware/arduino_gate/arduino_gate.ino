@@ -3,8 +3,10 @@
 #include <MFRC522.h>
 #include <avr/wdt.h>
 #include <avr/pgmspace.h>
+#include <EEPROM.h>
 #include "config.h"
 #include "gate_types.h"
+#include "protocol_core.h"
 
 // avr-libc early-reset pattern: preserve MCUSR before C initialization clears RAM.
 uint8_t resetCause __attribute__((section(".noinit")));
@@ -22,6 +24,12 @@ bool haveCard[READER_COUNT]={false};
 bool btnRaw=false,btnStable=false;
 uint32_t btnChanged=0,btnSince=0;
 uint32_t bootId=1;
+// Mutually exclusive buffers: 500-byte upload staging OR 16 offline records.
+// Upload is refused until replay drains, so unacknowledged records are never lost.
+union WorkBuffer { uint8_t stage[500]; OfflineEvent logs[16]; } work;
+uint32_t offlineUsers[8],recentHash=0,recentAt=0,replayAt=0,nextEventId=1;
+uint8_t offlineLevels[8],offlineUserCount=0,logHead=0,logCount=0,cacheCount=0,stageCount=0,stageExpected=0;
+bool staging=false,haveRecent=false;
 const char resultNames[7][4] PROGMEM={"IN","OUT","ISS","RET","DEN","PRM","NSS"};
 // Each row: green pulse count/on/off, beep count/on/off, red duration. Units 10 ms.
 const uint8_t patterns[7][7] PROGMEM={
@@ -30,7 +38,6 @@ const uint8_t patterns[7][7] PROGMEM={
 
 bool elapsed(uint32_t now,uint32_t start,uint32_t duration){return (uint32_t)(now-start)>=duration;}
 bool pcOk(uint32_t now){return !elapsed(now,lastPc,PC_LOST_MS);}
-uint32_t uidHash(const char *uid){uint32_t h=2166136261UL;while(*uid)h=(h^(uint8_t)*uid++)*16777619UL;return h;}
 void printHash(uint32_t h){for(int8_t i=7;i>=0;i--){uint8_t d=(h>>(4*i))&15;Serial.write(d<10?'0'+d:'A'+d-10);}}
 void buzzer(bool on){
 #if BUZZER_ACTIVE
@@ -85,7 +92,7 @@ void applyResult(uint8_t r){
 void spaces(char *&p){while(*p==' '||*p=='\t'||*p=='\r')p++;}
 char *quoted(char *&p){
   if(*p++!='"')return NULL;char *start=p;
-  while(*p&&*p!='"'){if((uint8_t)*p<32||*p=='\\')return NULL;p++;}
+  while(*p&&*p!='"'){if((uint8_t)*p<32||(uint8_t)*p>126||*p=='\\')return NULL;p++;}
   if(!*p)return NULL;*p++=0;return start;
 }
 bool parseCommand(Command &c){
@@ -108,18 +115,105 @@ char *stringField(Command &c,const __FlashStringHelper *key){Field *f=findField(
 bool numberField(Command &c,const __FlashStringHelper *key,uint32_t &out){Field *f=findField(c,key);if(!f||f->quoted)return false;out=strtoul(f->value,NULL,10);return true;}
 bool equals(const char *value,const __FlashStringHelper *expected){return value&&!strcmp_P(value,(PGM_P)expected);}
 uint8_t resultIndex(const char *r){if(r)for(uint8_t i=0;i<7;i++)if(!strcmp_P(r,resultNames[i]))return i;return 255;}
-// M2 extends these two hooks with EEPROM and replay; no online local toggles.
-bool offlineScan(uint32_t hash){return false;}
-bool offlineCommand(Command &c,const char *type){return false;}
-void offlineTick(uint32_t now){}
-uint8_t offlineCount(){return 0;}
+uint32_t readHashBytes(const uint8_t *bytes){uint32_t h=0;for(uint8_t i=0;i<4;i++)h|=(uint32_t)bytes[i]<<(8*i);return h;}
+uint32_t eepromHash(uint8_t index){uint32_t h=0;for(uint8_t i=0;i<4;i++)h|=(uint32_t)EEPROM.read(4+5*index+i)<<(8*i);return h;}
+uint8_t cacheFlags(uint32_t hash){for(uint8_t i=0;i<cacheCount;i++)if(eepromHash(i)==hash)return EEPROM.read(8+5*i);return 0;}
+void loadOffline(){
+  cacheCount=0;uint8_t count=EEPROM.read(3);
+  if(EEPROM.read(0)=='W'&&EEPROM.read(1)=='2'&&EEPROM.read(2)==2&&count<=100){
+    uint16_t crc=crcByte(crcByte(0xffff,2),count);bool valid=true;
+    for(uint16_t i=0;i<(uint16_t)count*5;i++)crc=crcByte(crc,EEPROM.read(4+i));
+    uint16_t stored=EEPROM.read(4+count*5)|((uint16_t)EEPROM.read(5+count*5)<<8);
+    for(uint8_t i=0;i<count;i++){uint8_t flags=EEPROM.read(8+5*i);if((flags&0x7c)||!(flags&3))valid=false;for(uint8_t j=0;j<i;j++)if(eepromHash(i)==eepromHash(j))valid=false;}
+    if(valid&&crc==stored)cacheCount=count;
+  }
+  // The independent boot counter is not part of the whitelist image.
+  // Two journal slots retain the last valid identifier across a torn counter write.
+  uint32_t a,ai,b,bi;EEPROM.get(1008,a);EEPROM.get(1012,ai);EEPROM.get(1016,b);EEPROM.get(1020,bi);
+  bool av=a&&(a^ai)==0xffffffffUL,bv=b&&(b^bi)==0xffffffffUL;
+  bool useB=bv&&(!av||(int32_t)(b-a)>0);uint32_t previous=useB?b:av?a:0;
+  bootId=previous+1;if(!bootId)bootId=1;uint32_t inverse=~bootId;uint16_t target=useB?1008:1016;
+  for(uint8_t i=0;i<4;i++){EEPROM.update(target+i,(bootId>>(8*i))&255);EEPROM.update(target+4+i,(inverse>>(8*i))&255);}
+}
+void wlError(const __FlashStringHelper *why){Serial.print(F("{\"t\":\"WLERR\",\"why\":\""));Serial.print(why);Serial.println(F("\"}"));}
+void trackBadge(uint32_t hash,uint8_t result){
+  uint8_t index=0;while(index<offlineUserCount&&offlineUsers[index]!=hash)index++;
+  if(result==R_OUT&&index<offlineUserCount){for(uint8_t i=index;i+1<offlineUserCount;i++){offlineUsers[i]=offlineUsers[i+1];offlineLevels[i]=offlineLevels[i+1];}offlineUserCount--;if(haveRecent&&recentHash==hash)haveRecent=false;}
+  else if(result==R_IN){if(index==offlineUserCount&&offlineUserCount<8){offlineUsers[offlineUserCount]=hash;offlineLevels[offlineUserCount++]=cacheFlags(hash)&3;}haveRecent=true;recentHash=hash;recentAt=millis();}
+}
+bool offlineScan(uint32_t hash){
+  staging=false;sessions=offlineUserCount;
+  if(logCount>=16||!nextEventId){wlError(F("FULL"));applyResult(R_PRM);return true;}
+  uint8_t flags=cacheFlags(hash),result=R_DEN,event=3;
+  if(flags){
+    if(!(flags&0x80)){
+      bool inside=false;for(uint8_t i=0;i<offlineUserCount;i++)if(offlineUsers[i]==hash)inside=true;
+      result=inside?R_OUT:offlineUserCount<8?R_IN:R_PRM;
+      if(result==R_IN||result==R_OUT){trackBadge(hash,result);event=result==R_IN?0:1;}
+    }else{
+      uint8_t owner=255;if(haveRecent&&!elapsed(millis(),recentAt,30000))for(uint8_t i=0;i<offlineUserCount;i++)if(offlineUsers[i]==recentHash)owner=i;
+      if(owner==255&&offlineUserCount==1)owner=0;
+      result=owner==255?R_NSS:offlineLevels[owner]<(flags&3)?R_PRM:R_ISS;if(result==R_ISS)event=2;
+    }
+  }
+  sessions=offlineUserCount;uint8_t slot=(logHead+logCount)%16;
+  work.logs[slot].hash=hash;work.logs[slot].at=millis();work.logs[slot].id=nextEventId++;work.logs[slot].event=event;logCount++;
+  applyResult(result);return true;
+}
+bool offlineCommand(Command &c,const char *type){
+  uint32_t value=0;
+  if(equals(type,F("OFFOK"))){if(numberField(c,F("id"),value)&&logCount&&work.logs[logHead].id==value){logHead=(logHead+1)%16;logCount--;replayAt=millis()-1000;}return true;}
+  if(!equals(type,F("WL")))return false;
+  char *op=stringField(c,F("op"));
+  if(equals(op,F("CLR"))){
+    if(logCount||alarmOn||pwOn||pending||!pcOk(millis())){wlError(F("BUSY"));return true;}
+    if(!numberField(c,F("n"),value)||value>100){wlError(F("COUNT"));return true;}
+    staging=true;stageExpected=value;stageCount=0;logHead=0;
+  }else if(!staging)wlError(F("STATE"));
+  else if(equals(op,F("ADD"))){
+    uint32_t lv,it;char *h=stringField(c,F("h"));
+    if(!h||strlen(h)!=8||!numberField(c,F("lv"),lv)||lv<1||lv>3||!numberField(c,F("it"),it)||it>1){wlError(F("STATE"));staging=false;return true;}
+    uint32_t hash=0;for(uint8_t i=0;i<8;i++){char ch=h[i];if(!((ch>='0'&&ch<='9')||(ch>='A'&&ch<='F'))){wlError(F("STATE"));staging=false;return true;}hash=(hash<<4)|(ch<='9'?ch-'0':ch-'A'+10);}
+    if(stageCount>=stageExpected){wlError(F("COUNT"));staging=false;return true;}
+    for(uint8_t i=0;i<stageCount;i++)if(readHashBytes(work.stage+5*i)==hash){wlError(F("DUP"));staging=false;return true;}
+    for(uint8_t i=0;i<4;i++)work.stage[5*stageCount+i]=(hash>>(8*i))&255;work.stage[5*stageCount+4]=lv|(it?0x80:0);stageCount++;
+  }else if(equals(op,F("END"))){
+    staging=false;uint32_t checksum;
+    if(logCount||alarmOn||pwOn||pending){wlError(F("BUSY"));return true;}
+    if(!numberField(c,F("n"),value)||value!=stageExpected||stageCount!=stageExpected){wlError(F("COUNT"));return true;}
+    uint16_t crc=crcByte(crcByte(0xffff,2),stageCount);for(uint16_t i=0;i<(uint16_t)stageCount*5;i++)crc=crcByte(crc,work.stage[i]);
+    if(!numberField(c,F("ck"),checksum)||checksum!=crc){wlError(F("CRC"));return true;}
+    // Magic is published last; an interrupted commit cannot authorize a partial list.
+    bool same=EEPROM.read(0)=='W'&&EEPROM.read(1)=='2'&&EEPROM.read(2)==2&&EEPROM.read(3)==stageCount;
+    for(uint16_t i=0;i<(uint16_t)stageCount*5&&same;i++)if(EEPROM.read(4+i)!=work.stage[i])same=false;
+    if(same&&(EEPROM.read(4+stageCount*5)!=(crc&255)||EEPROM.read(5+stageCount*5)!=(crc>>8)))same=false;
+    if(!same){EEPROM.update(0,0);EEPROM.update(1,0);EEPROM.update(2,2);EEPROM.update(3,stageCount);
+    for(uint16_t i=0;i<(uint16_t)stageCount*5;i++){EEPROM.update(4+i,work.stage[i]);
+#if USE_WDT
+      wdt_reset();
+#endif
+    }
+    EEPROM.update(4+stageCount*5,crc&255);EEPROM.update(5+stageCount*5,crc>>8);EEPROM.update(0,'W');EEPROM.update(1,'2');}cacheCount=stageCount;
+    // Revocation/downgrade must also affect already remembered offline identities.
+    for(uint8_t i=0;i<offlineUserCount;){uint8_t flags=cacheFlags(offlineUsers[i]);if(!flags||(flags&0x80))trackBadge(offlineUsers[i],R_OUT);else{offlineLevels[i]=flags&3;i++;}}
+    Serial.print(F("{\"t\":\"WLOK\",\"n\":"));Serial.print(cacheCount);Serial.println(F("}"));
+  }else{staging=false;wlError(F("STATE"));}
+  return true;
+}
+void offlineTick(uint32_t now){
+  if(!pcOk(now)){staging=false;return;}
+  if(logCount&&elapsed(now,replayAt,1000)){
+    replayAt=now;OfflineEvent &e=work.logs[logHead];Serial.print(F("{\"t\":\"OFF\",\"id\":"));Serial.print(e.id);Serial.print(F(",\"bid\":"));Serial.print(bootId);Serial.print(F(",\"h\":\""));printHash(e.hash);Serial.print(F("\",\"e\":\""));Serial.print(e.event==0?F("IN"):e.event==1?F("OUT"):e.event==2?F("ISS"):F("DEN"));Serial.print(F("\",\"ago\":"));Serial.print((uint32_t)(now-e.at)/1000);Serial.println(F("}"));
+  }
+}
+uint8_t offlineCount(){return logCount;}
 void command(){
   Command c;if(!parseCommand(c))return;char *t=stringField(c,F("t"));if(!t)return;
   uint32_t n=0,seq=0,value=0;
   if(equals(t,F("HB"))&&numberField(c,F("n"),n)&&n<=8){lastPc=millis();sessions=n;}
   else if(equals(t,F("SYNC"))&&numberField(c,F("n"),n)&&n<=8)sessions=n;
   else if(equals(t,F("AUTH"))&&numberField(c,F("seq"),seq)&&seq==pendingSeq&&numberField(c,F("n"),n)&&n<=8&&pending&&pcOk(millis())&&!elapsed(millis(),scanAt,AUTH_TIMEOUT_MS)){
-    uint8_t r=resultIndex(stringField(c,F("r")));if(r<7){sessions=n;applyResult(r);}
+    uint8_t r=resultIndex(stringField(c,F("r")));if(r<7){sessions=n;if(r==R_IN||r==R_OUT)trackBadge(uidHash(pendingUid),r);applyResult(r);}
   }else if(equals(t,F("PW"))&&numberField(c,F("on"),value)&&value<=1){
     if(value){uint32_t seconds;if(!numberField(c,F("s"),seconds)||seconds<1||seconds>3600)return;
       uint32_t now=millis(),duration=seconds*1000;if(!pwOn||duration<pwMs-(uint32_t)(now-pwAt)){pwAt=now;pwMs=duration;}pwOn=true;Serial.println(F("{\"t\":\"PW\",\"st\":\"ON\"}"));
@@ -163,7 +257,7 @@ void setup(){
   Serial.begin(SERIAL_BAUD);SPI.begin();
   for(uint8_t i=0;i<READER_COUNT;i++){uint8_t ss=i?RFID_SS_1:RFID_SS;pinMode(ss,OUTPUT);digitalWrite(ss,HIGH);}
   for(uint8_t i=0;i<READER_COUNT;i++)readers[i].PCD_Init(i?RFID_SS_1:RFID_SS,i?RFID_RST_1:RFID_RST);
-  lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.0\",\"rst\":\""));
+  loadOffline();lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.0\",\"rst\":\""));
   Serial.print(resetCause&_BV(WDRF)?F("WDT"):resetCause&_BV(BORF)?F("BOR"):resetCause&_BV(EXTRF)?F("EXT"):F("PWR"));Serial.print(F("\",\"rd\":"));Serial.print(READER_COUNT);Serial.print(F(",\"bid\":"));Serial.print(bootId);Serial.println(F("}"));
 #if USE_WDT
   wdt_enable(WDTO_2S);

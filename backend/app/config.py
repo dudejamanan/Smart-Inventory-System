@@ -15,6 +15,7 @@ class Config(BaseSettings):
     media_url_secret: str = ""
     cookie_secure: bool = False
     serial_port: str = ""
+    board_id: str = "gate-0"
     serial_baud: int = 115200
     fail_limit: int = Field(3, ge=1, le=20)
     fail_window_s: int = Field(60, ge=1, le=3600)

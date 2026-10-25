@@ -148,3 +148,14 @@ class Setting(Base):
     __tablename__ = "settings"
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=False)
+
+
+class OfflineRecord(Base):
+    __tablename__ = "offline_records"
+    board_id = Column(String(80), primary_key=True)
+    boot_id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, primary_key=True)
+    uid_hash = Column(String(8), nullable=False)
+    event = Column(String(4), nullable=False)
+    observed_ts = Column(Float, nullable=False)
+    received_ts = Column(Float, nullable=False)

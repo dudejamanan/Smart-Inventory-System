@@ -1,5 +1,7 @@
 # SQLite schema
 
+**v2 M2 additive change:** `offline_records(board_id TEXT, boot_id INTEGER, event_id INTEGER, uid_hash TEXT(8), event TEXT, observed_ts FLOAT, received_ts FLOAT)` has composite primary key `(board_id,boot_id,event_id)`. Replay creates one OFFLINE_EVENT and record in one transaction, commits, then sends OFFOK. Repeated deliveries do not duplicate the record/event. Estimated observed time uses receipt wall time minus board ago seconds; it is not a synchronized physical timestamp. BOARD_ID is a stable .env identity for one physical gate. The M3 level/tag/ledger/reconciliation schema and removal of the single-session index are not implemented yet. Existing v1 tables below remain compatible at M2; no database reset is required merely to add offline_records. Back up real data before any later reset/migration.
+
 SQLAlchemy model source: `backend/app/db/models.py`. SQLite WAL, foreign_keys ON, busy_timeout 10000 ms. Integer primary keys except composite permission keys and settings.key. Times are float UTC Unix seconds. Schema is created on first run; this version has no migration engine. Back up `data/warehouse.db` before changing models or dependency versions. Stop the app for a consistent file backup, including WAL/SHM files if still present.
 
 | Table | Columns / relationships |

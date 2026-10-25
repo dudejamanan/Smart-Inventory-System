@@ -143,10 +143,72 @@ def run_scenarios(data_dir, report=print):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--checkpoint-only", action="store_true")
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="warehouse-scenarios-") as directory:
-        run_scenarios(directory)
+        if not args.checkpoint_only:
+            run_scenarios(directory)
+        run_checkpoint_scenarios(Path(directory) / "checkpoint")
     print(
-        "All 10 end-to-end scenarios passed. Synthetic hardware; no electrical claims."
+        "PASS checkpoint scenarios; default run also includes all 10 threaded regression scenarios. Synthetic hardware; no electrical claims."
+    )
+
+
+def run_checkpoint_scenarios(directory, report=print):
+    from app.sim.arduino import SimulatedArduino
+    from app.services.protocol import fnv1a, whitelist_messages
+    from app.services.offline import OfflineCoordinator
+    from app.db.store import Store
+    from app.db.models import OfflineRecord
+    from sqlalchemy import select
+
+    clock = [0.0]
+    b = SimulatedArduino(clock=lambda: clock[0])
+    b.drain()
+    for message in whitelist_messages(
+        [(fnv1a("A1B2C3D4"), 2, False), (fnv1a("00112233"), 1, True)]
+    ):
+        b.receive(message)
+    assert b.drain()[-1]["t"] == "WLOK"
+    b.receive({"t": "PW", "on": 1, "s": 8})
+    clock[0] = 9
+    b.tick()
+    assert b.alarm and b.alarm_reason == "DEADMAN"
+    b.receive({"t": "ACK"})
+    report("PASS | M2 dead-man | escalates with PC silent")
+    for uid, result in [("A1B2C3D4", "IN"), ("00112233", "ISS"), ("A1B2C3D4", "OUT")]:
+        clock[0] += 1.6
+        b.scan(uid)
+        assert b.drain()[-1]["r"] == result
+    report("PASS | M2 offline tags | badge IN, item ISS, badge OUT without PC AUTH")
+    store = Store(Config(data_dir=directory))
+    sent = []
+
+    class Link:
+        connected = True
+
+        def send(self, m):
+            sent.append(m)
+            b.receive(m)
+
+    coordinator = OfflineCoordinator(store, Link(), lambda: [], clock=lambda: clock[0])
+    b.receive({"t": "HB", "n": 0})
+    while b.logs:
+        b.tick()
+        event = next(e for e in b.drain() if e["t"] == "OFF")
+        coordinator.replay(event)
+        coordinator.replay(event)
+    with store.session() as s:
+        assert len(s.scalars(select(OfflineRecord)).all()) == 3
+    store.engine.dispose()
+    report("PASS | M2 replay | three durable rows, duplicate deliveries deduplicated")
+    reboot = SimulatedArduino(clock=lambda: clock[0], eeprom=b.eeprom)
+    assert reboot.boot_id > b.boot_id and len(reboot.whitelist) == 2 and not reboot.logs
+    report(
+        "PASS | M2 EEPROM reboot | whitelist retained; volatile session/log state cleared"
     )
 
 

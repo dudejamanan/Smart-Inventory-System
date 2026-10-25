@@ -258,6 +258,8 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             runtime.engine.refresh()
         if resource in {"slots", "inventory"}:
             runtime.vision.reload()
+        if resource == "inventory":
+            runtime.offline.request()
         return result
 
     @app.post("/api/personnel/enrol")
@@ -304,6 +306,27 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
         if resource in {"slots", "inventory"}:
             runtime.vision.reload()
         return {"ok": True}
+
+    @app.post("/api/offline/sync")
+    def offline_sync(request: Request):
+        admin(request)
+        runtime.offline.request()
+        return {"queued": True}
+
+    @app.get("/api/offline/events")
+    def offline_events(request: Request):
+        from app.db.models import OfflineRecord
+
+        admin(request)
+        with runtime.store.session() as s:
+            return [
+                row(e)
+                for e in s.scalars(
+                    select(OfflineRecord)
+                    .order_by(OfflineRecord.received_ts.desc())
+                    .limit(200)
+                )
+            ]
 
     @app.get("/api/personnel/{ident}/zones")
     def permissions(ident: int, request: Request):

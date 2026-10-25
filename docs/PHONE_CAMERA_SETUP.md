@@ -1,5 +1,9 @@
 # Phone camera setup
 
+## Campus network / hotspot option
+
+Campus guest Wi-Fi may block devices from reaching each other even when both show the same network name. For a lab demo, enable a private phone hotspot and connect the laptop to it; use a strong hotspot password. Start the camera-stream app and copy the **actual hotspot-side** video URL it displays (it may differ from your home Wi-Fi IP). Open it on the laptop and run camera_test.py before mounting/calibrating. A hotspot often has no usable internet without mobile data, so test notification connectivity separately; gate/offline alarms do not need internet. Keep the phone charged, ventilated and awake. Do not expose its stream to the public tunnel. v2 reveal/anchor learned calibration arrives at M6; current M2 vision remains the v1 pipeline below.
+
 ## 1. Select and connect a stream
 
 1. Install a camera-streaming app from your phone's official app store. Android IP Webcam is a common option. DroidCam may require a desktop client; use its exposed MJPEG URL if supported, or the resulting virtual webcam with an appropriate source adjustment. This app expects a direct OpenCV-readable stream, not the camera app's HTML control page.

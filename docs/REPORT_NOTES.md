@@ -1,5 +1,7 @@
 # Report notes: seven EDLC phases
 
+**v2 M2 additions:** specifications now separate declared RFID authorization from observed motion, with the reconciliation/ledger implementation explicitly deferred to M3/M4. Partitioning adds EEPROM offline policy, a local prewarning/dead-man timer, debounced button and hardware watchdog to the UNO. Detailed design uses result-coded AUTH/FB, session-count mirroring, table-driven PROGMEM patterns, telemetry and two alternating reader polls. Integration includes count/CRC-validated whitelist staging and durable replay ACKs. Testing compiles four main variants/six unit sketches, injects clocks for local deadlines/offline logic and checks replay/DB-failure isolation; real GPIO/WDT/power/shared-SPI results remain blank for the student. Maintenance adds boot-ID journaling, wear-conscious EEPROM.update and explicit cache-revocation verification. Use V2_VERIFICATION and MEASUREMENTS for actual evidence; do not describe the M3–M8 features as built.
+
 Use these as source notes, not as invented experimental results. Add your hardware photos, measured timings and observations from TEST_PLAN.
 
 ## 1. Specifications

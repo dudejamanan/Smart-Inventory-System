@@ -1,5 +1,7 @@
 # Repository conventions
 
+Current branch v2 is intentionally stopped at M2 per docs/CODEX_PROMPT_v2.md. Preserve tag v1.0. Do not claim the M3–M8 ledger, multiple TTL sessions, strict reconciliation, Telegram or vision/UI redesign exists yet. Main firmware/transport use protocol 2.0; explicit legacy_* modules are only v1 regression references. Run `python tools/compile_firmware.py` for all four main variants and six test sketches; enforce global RAM <=1100 B and flash <24 KB. New domain-timer tests use injected clocks. Offline replay must commit/deduplicate before OFFOK, and whitelist staging must not overwrite pending offline events. See docs/V2_HARDWARE_CHECKPOINT.md for the current human handoff.
+
 Use Python 3.11 and Node 22+ (Node 24 tested). Run one backend process only. The backend owns serial and camera threads. Keep UNO alarm decisions independent of databases, cameras and notification providers. Never use Arduino String, ArduinoJson, delay(), or dynamic allocation in firmware. Preserve the exact pin map in config.h and the 96-byte serial bound.
 
 Run `python -m pytest -q` at the repository root with the venv activated. Run `npm ci --prefix frontend` then `npm run build --prefix frontend`. Run `python tools/fake_scenarios.py` for all ten integration scenarios. Use `scripts/dev.ps1` on Windows or `bash scripts/dev.sh` elsewhere after dependency installation. The built dashboard is served at http://127.0.0.1:8000. Run Vite on port 5173 only during UI development.

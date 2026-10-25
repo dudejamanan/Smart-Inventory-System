@@ -244,8 +244,24 @@ function App() {
             <button onClick={() => setError("")}>Dismiss</button>
           </div>
         )}
-        {status.serial?.error&&<div className="error" role="alert">{status.serial.error}</div>}
-        {status.prewarn&&<div className="warning" role="alert">Removal awaiting declaration. The gate controller will escalate if the grace timer expires.</div>}
+        {status.checkpoint && (
+          <div className="warning">
+            Hardware test checkpoint: item issuing and strict removal
+            reconciliation are not enabled yet. Online access still uses the
+            existing single-worker policy.
+          </div>
+        )}
+        {status.serial?.error && (
+          <div className="error" role="alert">
+            {status.serial.error}
+          </div>
+        )}
+        {status.prewarn && (
+          <div className="warning" role="alert">
+            Removal awaiting declaration. The gate controller will escalate if
+            the grace timer expires.
+          </div>
+        )}
         {status.alarm && (
           <div className="alarm" role="alert">
             <div>
@@ -552,11 +568,30 @@ function App() {
                   status.serial?.connected ? "Connected" : "Disconnected",
                 ],
                 ["Malformed serial lines", status.serial?.malformed],
-                ['Firmware',status.serial?.firmware?.fw||'Awaiting BOOT'],
-                ['Last reset',status.serial?.firmware?.rst||'Unknown'],
-                ['Free RAM (board)',status.simulate?'Synthetic: not a measurement':status.serial?.telemetry?.ram??'Unavailable'],
-                ['Maximum loop time (µs)',status.simulate?'Synthetic: not a measurement':status.serial?.telemetry?.lp??'Unavailable'],
-                ['Offline events pending',status.serial?.telemetry?.off??0],
+                ["Firmware", status.serial?.firmware?.fw || "Awaiting BOOT"],
+                ["Last reset", status.serial?.firmware?.rst || "Unknown"],
+                [
+                  "Free RAM (board)",
+                  status.simulate
+                    ? "Synthetic: not a measurement"
+                    : (status.serial?.telemetry?.ram ?? "Unavailable"),
+                ],
+                [
+                  "Maximum loop time (µs)",
+                  status.simulate
+                    ? "Synthetic: not a measurement"
+                    : (status.serial?.telemetry?.lp ?? "Unavailable"),
+                ],
+                ["Offline events pending", status.serial?.telemetry?.off ?? 0],
+                [
+                  "Offline whitelist",
+                  status.offline_whitelist?.state || "Unknown",
+                ],
+                ["Cached badge count", status.offline_whitelist?.count ?? 0],
+                [
+                  "Whitelist diagnostic",
+                  status.offline_whitelist?.error || "None",
+                ],
                 ["Gate camera", status.gate_camera],
                 ["Shelf camera", status.shelf_camera],
                 ["Notification provider", status.notifier],
@@ -575,6 +610,12 @@ function App() {
                 </div>
               ))}
               <h3>Hardware output test</h3>
+              <button
+                className="secondary"
+                onClick={() => act(() => api("offline/sync", "POST"))}
+              >
+                Retry offline whitelist sync
+              </button>
               <div className="actions">
                 {["green", "red", "buzzer"].map((w) => (
                   <button

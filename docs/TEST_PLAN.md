@@ -1,5 +1,26 @@
 # Test plan and real measurement worksheet
 
+## v2 M2 checkpoint (current branch)
+
+Use V2_HARDWARE_CHECKPOINT.md and MEASUREMENTS.md first. The original v1 worksheet below is retained as historical/core regression context; replace old REMOVAL tests with reason-coded ALARM SHELF_BREACH. Multi-session, ledger, reconciliation, Telegram and learned/reveal vision tests belong to later milestones, not this checkpoint.
+
+| Test | Expected | Actual | Pass/fail | Raw evidence |
+|---|---|---|---|---|
+| BOOT/reset/readers | fw 2.0, actual rst, rd and increasing bid | | | |
+| Result codes | IN/OUT/ISS/RET success resets; DEN/NSS count; PRM does not | | | |
+| PW cancel/deadline | ON/OFF/ESC; one DEADMAN shelf-pattern alarm without PC | | | |
+| Button | 30 ms debounce, short mute 30 s, long ACK when enabled | | | |
+| WDT hang | Reset on safe bootloader; USE_WDT=0 fallback documented | | | |
+| EEPROM vectors/cache | C++ FNV/CRC PASS, WLOK, valid cache retained across reset | | | |
+| Offline known badge/item | Local IN/ISS/OUT, level/no-session denials, no PC AUTH | | | |
+| Offline unknown x3 | Local gate alarm despite PC/camera/notifier absence | | | |
+| Ring/full policy | No overwrite; fail closed with FULL diagnostic | | | |
+| Replay | Durable rows before ACK, duplicates do not duplicate | | | |
+| Two readers | Correct rd=0/1, stable shared-SPI and supply | | | |
+| Actual telemetry | ram/lp/off recorded; no simulation numbers reused | | | |
+
+Software baseline and final command outputs are recorded separately in V2_VERIFICATION.md. New time-based domain tests inject clocks; the complete suite must remain under approximately 90 s on the development laptop.
+
 ## 1. Automated software checks
 
 Run from repository root with Python 3.11 venv. Do not connect real hardware to the automated suite; it uses temporary databases and synthetic cameras/serial. `pytest -q` covers protocol rejection, clock-driven firmware behavior, real ArUco image classification, debounce, camera health, API/login/CRUD, CSRF protection, Twilio signatures, retries, signed media, rule attribution, and full threaded scenarios.
