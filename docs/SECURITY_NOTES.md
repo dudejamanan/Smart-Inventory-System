@@ -1,5 +1,7 @@
 # Security notes and checkpoint scope
 
+**Current scope update (2026-10-27):** strict transaction reconciliation, item registry/levels, TTL sessions and reveal/anchor vision are implemented. M2 limits described below are historical when they list these as future work. UID cloning, marker spoofing, serial spoofing, volatile offline loss, camera blind spots and provider dependence remain limitations. A badge declaration is not physical person counting; optional face/person/direction detection is absent. Offline logs lack holder attribution and require manual review rather than fabricated loan reconstruction. See CURRENT_SETUP.md.
+
 This is a student lab prototype, not a production lock, identity proof or safety system. The current v2 delivery stops at M2. Strict transaction-to-removal reconciliation, online item registry/levels, TTL/multiple sessions and upgraded vision remain pending.
 
 1. **Cloned UIDs:** RFID UIDs can be copied. FNV-1a is a compact identifier, not encryption, a password or collision-resistant authentication. Duplicate hashes are refused on cache upload; active badges still need physical control.

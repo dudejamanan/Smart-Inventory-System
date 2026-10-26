@@ -101,7 +101,7 @@ class SerialLink:
                 )
             image = bytearray(raw)
         self.board = (
-            SimulatedArduino(config.model_copy(deep=True), eeprom=image)
+            SimulatedArduino(config.model_copy(deep=True), eeprom=image, readers=2)
             if simulate
             else None
         )
@@ -172,8 +172,13 @@ class SerialLink:
                         self.firmware = m.copy()
                         self.firmware_error = (
                             None
-                            if tuple(map(int, m["fw"].split("."))) >= (2, 0)
-                            else "Firmware 2.0 required. Flash v2 before using this app."
+                            if tuple(map(int, m["fw"].split(".")))
+                            >= (
+                                (2, 0)
+                                if self.c.removal_policy == "session_lenient"
+                                else (2, 1)
+                            )
+                            else "Firmware 2.1 required. Flash current D4/D5 build before using this app."
                         )
                     if m["t"] == "PW":
                         self.prewarn = m["st"] == "ON"

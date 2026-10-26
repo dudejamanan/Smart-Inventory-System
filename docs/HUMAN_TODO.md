@@ -1,37 +1,20 @@
-# Your ordered checklist: v2 M2 hardware checkpoint
+# Your remaining steps, in order
 
-The useful v2 prompt is being followed **through M2**, where it explicitly requires a stop for your physical tests. Read [V2_HARDWARE_CHECKPOINT.md](V2_HARDWARE_CHECKPOINT.md) as the primary guide. The original v1 checklist is preserved in HUMAN_TODO_V1.md. Nothing here claims that an actual board was flashed or that physical tests passed.
+Current guide: [CURRENT_SETUP.md](CURRENT_SETUP.md). The user resumed software development beyond M2 on 2026-10-27. Earlier M2 handoff and verification files are historical. Software checks do not establish any physical result.
 
-## While Codex works / preparation
+1. [ ] Back up .env and DATA_DIR privately with the backend stopped. Preserve tag v1.0. Use a separate real hardware data directory; do not authorise fake simulation badges in a real demonstration.
+2. [ ] Verify actual circuit: reader #1 SS D10 / RST D9, reader #2 SS D4 / RST D5, shared D13/D11/D12, common ground, 3.3 V readers, appropriate level shifting and sufficient regulated power. Check LED resistors and buzzer current/driver. There is no wired button; firmware disables it.
+3. [ ] Activate Python 3.11 venv, install backend lockfile, `npm ci --prefix frontend`, `npm run build --prefix frontend`. Generate missing secrets with scripts/init_env.py. Never share secrets.
+4. [ ] Stop serial owners. Run tools/compile_firmware.py. Upload the **current firmware 2.1** reader2-active or reader2-passive build to the actual COM port using the command in CURRENT_SETUP.md. Arduino IDE is optional. Verify BOOT fw 2.1 and rd 2.
+5. [ ] Run tools/hw_selftest.py --port COMx --readers 2 and tools/protocol_conformance.py --port COMx. Observe each real LED/buzzer/card response. Skip the absent button. Record actual watchdog/reset/RAM/timing results; no physical results are filled in automatically.
+6. [ ] On the phone install/start a local MJPEG streaming app. Put phone/laptop on one trusted Wi-Fi or phone hotspot, verify its actual /video endpoint on the laptop, then run tools/camera_test.py for both cameras. Keep the phone powered, ventilated and awake.
+7. [ ] Edit .env: actual SERIAL_PORT, DATA_DIR, GATE_CAMERA_INDEX, SHELF_STREAM_URL, REMOVAL_POLICY=strict_issue, GATE_PHOTO_POLICY=third_failure. Start scripts/dev.ps1 -Hardware; open the built dashboard at http://127.0.0.1:8000.
+8. [ ] Enrol real badges with levels and separate item tags with minimum levels/loan duration. Create linked shelf slots. Wait for cache CURRENT; verify badge and item counts. A tag cannot be both a badge and an item.
+9. [ ] Print item/reveal/anchor markers. Pause shelf rules in Calibration, put all items present, learn four anchors/rest positions, refine slot ROIs, remove each item to verify reveal/capture empty reference, restore all items and resume. Check all slots PRESENT before alarm tests.
+10. [ ] Follow DEMO_SCRIPT.md: legal issue/removal, return/place, denied removal, late match, grace expiry with somebody inside, unattended removal, three wrong gate badges and exactly one saved laptop photo. Cover/disconnect/move phone and verify health warnings rather than invented theft observations.
+11. [ ] Set up your Twilio Sandbox/account, join from the owner phone, HTTPS backend tunnel, exact PUBLIC_BASE_URL and signed inbound/status webhooks. Send hello after configuring the inbound URL; verify the 24-hour timer. Run the explicit twilio_test.py command and check actual text/photo receipt. Stop the tunnel when finished.
+12. [ ] Optional: configure Telegram independently using TELEGRAM_SETUP.md and run its explicit test. No real notification was sent during software development.
+13. [ ] Use the disposable two-tag offline fixture if testing PC loss. Keep the USB port open and pause heartbeats; unplugging USB or reopening UNO serial can reset volatile sessions/logs. Restore the normal whitelist afterward and review offline events manually; they cannot reconstruct an attributed online loan ledger.
+14. [ ] Fill only real results in TEST_PLAN.md and MEASUREMENTS.md, attach actual local logs/photos/video privately, and note any remaining hardware/provider failures. Do not replace blank physical measurements with simulated values.
 
-1. [ ] Collect the v1 components plus one normally-open push button for D4, a checked buzzer transistor stage, and optional second RC522. Read safety/3.3 V rules in HARDWARE_GUIDE and checkpoint §2.
-2. [ ] Install Python 3.11, Node 22/24, Arduino IDE/CLI and the UNO USB driver if needed. Select AVR core 1.8.6 and MFRC522 1.4.12 (SETUP_GUIDE and checkpoint §1/§4).
-3. [ ] Back up real .env/data privately. Generate your own secrets with init_env.py if missing. Do not share tokens, real photos or phone numbers. Do not reset/erase an evidence database to fix a software problem (checkpoint §1).
-4. [ ] With USB unplugged, wire reader 0, LED resistors, buzzer driver and D4 button. Have a lab partner/instructor compare every pin and divider against checkpoint §2.
-5. [ ] Measure RC522 supply at approximately 3.3 V; inspect common ground and LED polarity. Stop/unplug if hot components or unstable USB appear (HARDWARE_GUIDE §5).
-6. [ ] Label two different compatible physical tags for the offline fixture test. Read their actual uppercase UIDs with rfid_test; the example UIDs in commands are not promises about your cards (checkpoint §4/§6).
-7. [ ] If using two readers, plan the separate regulated 3.3 V power budget and six shifted output signals with your instructor. Do not power two modules blindly from the UNO 3.3 V pin (checkpoint §3).
-8. [ ] Mount the phone and check a direct local stream if desired. Campus Wi-Fi may isolate devices; use a private phone hotspot as described in PHONE_CAMERA_SETUP. New reveal/learn-shelf calibration is not ready until M6.
-
-## After software completion: execute these in order
-
-9. [ ] Confirm branch v2 and preserved tag v1.0. Stop the backend and close every serial monitor/tool (checkpoint §1).
-10. [ ] Run pytest, frontend build and `python tools/compile_firmware.py`; record actual output. The compile helper checks four variants and six unit sketches but never uploads (checkpoint §4).
-11. [ ] Upload/run reader, LED/buzzer, button and EEPROM/hash sketches. Copy the two required headers for eeprom_test. Record observed PASS text and physical output behavior (checkpoint §4).
-12. [ ] Check watchdog-safe bootloader first; run wdt_test only under the guide's instructions. If reset loops occur, recover with USE_WDT=0 or instructor-assisted bootloader repair. Record actual reset behavior (checkpoint §4).
-13. [ ] Choose one-reader/two-reader and active/passive settings, then **upload main fw 2.0** to your actual COM port. Confirm BOOT fw/rd/bid and HB, then close monitor (checkpoint §4).
-14. [ ] Run real protocol_conformance with the backend stopped. Confirm the physical result patterns and local DEADMAN escalation while heartbeats stop; acknowledge afterward (checkpoint §5).
-15. [ ] Run hw_selftest with matching --readers. Observe each light/sound, both button actions, actual telemetry and optional second reader. Do not type y for an unobserved result (checkpoint §5).
-16. [ ] Explicitly run the two-tag offline fixture with your real UIDs. It overwrites the cache. Keep USB/serial open while heartbeats pause; verify badge IN, item ISS, badge OUT and durable duplicate-safe replay into data/hardware-replay (checkpoint §6).
-17. [ ] Start normal backend hardware mode with a clean real DATA_DIR. Enrol/save real badges, wait for offline cache CURRENT, verify count and firmware telemetry, and restore the normal cache after fixture use (checkpoint §7).
-18. [ ] Test unknown card once/three times and camera/notifier outages. Confirm local alarm behavior physically; remember that button mute suppresses sound for 30 s and that no new shelf detection exists while the PC is absent (checkpoint §5/§7).
-19. [ ] Collect actual FB/video/instrument samples and fill MEASUREMENTS.md plus TEST_PLAN's M2 worksheet. Keep raw traces/output under data or in a private report folder (checkpoint §8).
-20. [ ] **Stop at M2 and provide the hardware results**: board/bootloader, variant, voltages, reader IDs, button results, reset cause, RAM/loop telemetry, offline fixture/replay outcome and any failure output. That is the intended checkpoint before M3–M8.
-
-## Later, after M3–M8 are implemented
-
-- [ ] Enrol real item tags/clearance levels; validate multiple TTL sessions and ledger/CSV.
-- [ ] Test matched/late/unissued/denied removal and return reconciliation before claiming strict security.
-- [ ] Configure Telegram privately when its notifier ships; keep WhatsApp optional and test real delivery.
-- [ ] Print reveal/anchor marker sheets and run the guided learned-shelf calibration when M6 ships.
-- [ ] Follow the eventual full v2 demo script and complete end-to-end acceptance. The requested 18+ v2 scenarios are not all implemented at M2.
+No optional person detector, face recognition, gate barrier, direction sensor, LCD or ultrasonic sensor is included in this circuit. Barcode/RFID declarations and a camera's view cannot prove who physically crossed a door.

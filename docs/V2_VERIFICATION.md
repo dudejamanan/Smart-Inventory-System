@@ -1,5 +1,7 @@
 # v2 M2 verification — 2026-10-25
 
+Historical report. Current operational results are in OPERATIONAL_VERIFICATION.md and setup is in CURRENT_SETUP.md.
+
 Branch: `v2`; v1 baseline retained as tag `v1.0`. This completes M0–M2 of CODEX_PROMPT_v2 and stops at its required physical hardware checkpoint. M3–M8 are not complete. See V2_CHANGES.md for the integration boundary and V2_HARDWARE_CHECKPOINT.md for the ordered handoff.
 
 ## Automated results

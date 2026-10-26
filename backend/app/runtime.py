@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.db.store import Store
 from app.db.models import ShelfSlot, Setting
 from app.services.engine import Engine
+from app.services.legacy_engine import Engine as LegacyEngine
 from app.services.serial_link import SerialLink
 from app.services.frames import (
     WebcamSource,
@@ -19,7 +20,7 @@ from app.services.frames import (
 from app.services.vision import Vision, crop
 from app.services.capture import GateCapture
 from app.services.evidence import Evidence
-from app.services.notifier import MediaSigner, NotificationQueue
+from app.services.notifier import MediaSigner, NotificationQueue, TelegramNotifier
 from app.services.offline import OfflineCoordinator, badge_entries
 
 log = logging.getLogger(__name__)
@@ -48,6 +49,17 @@ SAFE_SETTINGS = {
     "gate_camera_index",
     "shelf_stream_url",
     "shelf_video_file",
+    "removal_policy",
+    "session_ttl_min",
+    "max_sessions",
+    "attribution_window_s",
+    "removal_grace_s",
+    "issue_token_ttl_s",
+    "return_grace_s",
+    "return_place_s",
+    "overdue_check_s",
+    "gate_photo_policy",
+    "slot_mode",
 }
 
 
@@ -72,10 +84,15 @@ class Runtime:
         self.started = time.monotonic()
         self.clients = set()
         self.loop = None
-        self.engine = Engine(self.store, c, lambda m: self.serial.send(m))
+        engine_type = LegacyEngine if c.removal_policy == "session_lenient" else Engine
+        self.engine = engine_type(self.store, c, lambda m: self.serial.send(m))
         self.serial = SerialLink(c, self.on_serial, simulate)
         self.serial.on_connect = self.engine.sync
-        self.serial.session_count = lambda: int(self.engine.current is not None)
+        self.serial.session_count = (
+            lambda: len(self.engine.sessions)
+            if hasattr(self.engine, "sessions")
+            else int(self.engine.current is not None)
+        )
         self.engine.firmware_compatible = False
         self.offline = OfflineCoordinator(
             self.store, self.serial, lambda: badge_entries(self.engine), c.board_id
@@ -99,13 +116,24 @@ class Runtime:
             c.data_dir, c.media_url_secret or secrets.token_hex(32)
         )
         self.notifications = NotificationQueue(self.store, c, self.signer)
+        self.telegram = (
+            NotificationQueue(self.store, c, self.signer, provider=TelegramNotifier(c))
+            if "telegram" in c.notify_channels.split(",")
+            else None
+        )
         self.vision = Vision(self.shelf, self.store, c, self.engine)
         self.engine.capture = self.capture.schedule
         self.engine.alert = self.schedule_alert
         self.engine.evidence = self.evidence.schedule
+        if hasattr(self.engine, "removal_seen"):
+            self.engine.removal_seen = self.evidence.remember
+            self.engine.evidence_for_slot = self.evidence.schedule_for_slot
         self.engine.publish = self.publish
         self.notifications.photo = self.notification_photo
+        if self.telegram:
+            self.telegram.photo = self.notification_photo
         self.worker = None
+        self.safety_worker = None
 
     def schedule_alert(self, incident, kind, uid, source, seq):
         # Preserve gate incident evidence even with an expired or broken notifier.
@@ -135,7 +163,18 @@ class Runtime:
             except Exception:
                 log.exception("Gate incident photo association failed")
             try:
-                self.notifications.enqueue(incident, kind, uid, source, seq)
+                for channel in [self.notifications, self.telegram]:
+                    if channel:
+                        try:
+                            channel.enqueue(
+                                incident,
+                                kind,
+                                uid,
+                                source,
+                                incident if source == "shelf" else seq,
+                            )
+                        except Exception:
+                            log.exception("Notification channel enqueue failed")
             except Exception:
                 log.exception("Notification scheduling failed")
 
@@ -144,8 +183,18 @@ class Runtime:
     def notification_photo(self, source, seq):
         if source == "gate":
             return self.capture.result(seq)
+        # Prefer incident-time evidence over a later live frame.
+        for _ in range(20):
+            photo = self.evidence.photos.get(seq)
+            if photo:
+                return photo
+            if self.stop.wait(0.05):
+                return None
         frame = self.shelf.snapshot()
-        if frame is None:
+        if (
+            frame is None
+            or time.monotonic() - self.shelf.last_at >= self.c.cam_offline_s
+        ):
             return None
         path = self.c.data_dir / "outgoing" / f"shelf-{secrets.token_hex(8)}.jpg"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -155,9 +204,15 @@ class Runtime:
     def on_serial(self, m):
         self.offline.on_message(m)
         if m["t"] == "BOOT":
-            self.engine.firmware_compatible = tuple(map(int, m["fw"].split("."))) >= (
-                2,
-                0,
+            minimum = (2, 0) if self.c.removal_policy == "session_lenient" else (2, 1)
+            self.engine.firmware_compatible = (
+                tuple(map(int, m["fw"].split("."))) >= minimum
+            )
+            self.serial.firmware = m.copy()
+            self.serial.firmware_error = (
+                None
+                if self.engine.firmware_compatible
+                else "Flash current firmware 2.1 for D4/D5 and gate-only failure counting before use"
             )
         self.engine.authorize(m)
         try:
@@ -184,6 +239,8 @@ class Runtime:
         last_gate = "UNKNOWN"
         last_serial = True
         while not self.stop.is_set() or not self.events.empty():
+            if hasattr(self.engine, "drain"):
+                self.engine.drain()
             try:
                 m = self.events.get(timeout=0.1)
                 try:
@@ -240,8 +297,24 @@ class Runtime:
                         slot.empty_ref_path = str(path)
         self.vision.reload()
         self.notifications.start()
+        if self.telegram:
+            self.telegram.start()
         self.worker = threading.Thread(target=self.run_events, daemon=True)
         self.worker.start()
+
+        def safety():
+            while not self.stop.is_set():
+                try:
+                    if hasattr(self.engine, "safety_tick"):
+                        self.engine.safety_tick()
+                except Exception:
+                    log.exception("Safety timer failed")
+                self.stop.wait(0.05)
+
+        self.safety_worker = threading.Thread(
+            target=safety, daemon=True, name="rules-timers"
+        )
+        self.safety_worker.start()
         self.serial.start()
         self.offline.start()
         self.vision.start()
@@ -266,7 +339,21 @@ class Runtime:
                 "telemetry": self.serial.telemetry,
             },
             "prewarn": self.serial.prewarn,
-            "checkpoint": "v2 M2 hardware checkpoint; ledger/reconciliation pending",
+            "checkpoint": None,
+            "removal_policy": self.c.removal_policy,
+            "reader_roles": {"0": "Badge entry / exit", "1": "Item issue / return"},
+            "sessions": list(getattr(self.engine, "sessions", {}).values()),
+            "pending_removals": [
+                dict(slot_id=p["slot"]["id"], deadline=p["deadline"])
+                for p in getattr(
+                    getattr(self.engine, "reconcile", None), "pending", {}
+                ).values()
+                if p["mode"] == "removal"
+            ],
+            "gate_photo_policy": self.c.gate_photo_policy,
+            "rectification": self.vision.rectification,
+            "monitoring_paused": getattr(self.engine, "monitoring_paused", False),
+            "anchor_residual": self.vision.anchor_residual,
             "offline_whitelist": self.offline.status(),
             "session": self.engine.current,
             "alarm": self.engine.alarm,
@@ -278,6 +365,13 @@ class Runtime:
             "slots": self.vision.states,
             "whatsapp_remaining_s": self.notifications.session_remaining(),
             "notifier": type(self.notifications.provider).__name__,
+            "notifier_error": self.notifications.configuration_error,
+            "telegram_error": self.telegram.configuration_error
+            if self.telegram
+            else None,
+            "notify_channels": self.c.notify_channels,
+            "rules_persistence_error": getattr(self.engine, "persistence_error", None),
+            "rules_pending_writes": getattr(self.engine, "jobs", queue.Queue()).qsize(),
             "enrolled_uid": self.engine.enrolled_uid,
         }
 
@@ -286,11 +380,16 @@ class Runtime:
         self.offline.close()
         self.serial.close()
         self.stop.set()
+        if self.safety_worker:
+            self.safety_worker.join(2)
         if self.worker:
             self.worker.join(4)
         self.capture.close()
         self.evidence.close()
         self.notifications.close()
+        if self.telegram:
+            self.telegram.close()
+            self.telegram.provider.client.close()
         self.gate.close()
         self.shelf.close()
         self.store.engine.dispose()

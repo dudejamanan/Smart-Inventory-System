@@ -1,6 +1,28 @@
 # Test plan and real measurement worksheet
 
-## v2 M2 checkpoint (current branch)
+## Current supplied-circuit acceptance (2026-10-27)
+
+Use CURRENT_SETUP.md and DEMO_SCRIPT.md. These are **blank physical measurements**, not simulated outcomes.
+
+| Test | Expected | Actual | Pass/fail | Evidence |
+|---|---|---|---|---|
+| Firmware/wiring | fw 2.1, rd 2, physical #2 D4/D5, no button | | | |
+| Reader roles | #1 badges IN/OUT, #2 items ISSUE/RETURN | | | |
+| Gate one/two/three wrong badges | Logs only twice; third local alarm + one saved laptop photo | | | |
+| Item-reader wrong tags | No gate threshold alarm | | | |
+| Two sessions / expiry | Independent sessions and real configured TTL | | | |
+| Permitted issue then lift | MATCHED, holder/due time, no alarm | | | |
+| Lift then scan | LATE_MATCH within grace; otherwise alarm | | | |
+| Denied then lift / no session | Immediate shelf alarm + phone evidence | | | |
+| Return scan / placement | MATCHED or timed warning if scan/place missing | | | |
+| Phone cover/offline/anchors | Health warning/suspended observations; modest pose rectifies | | | |
+| WhatsApp actual delivery | Laptop photo for gate, phone photo for shelf; statuses checked | | | |
+| Optional Telegram | Independent text + multipart photo delivery | | | |
+| 3.3 V supply / runtime RAM | Actual voltage/current/headroom recorded separately | | | |
+
+Historical worksheets follow; current software verification is OPERATIONAL_VERIFICATION.md.
+
+## Historical v2 M2 checkpoint
 
 Use V2_HARDWARE_CHECKPOINT.md and MEASUREMENTS.md first. The original v1 worksheet below is retained as historical/core regression context; replace old REMOVAL tests with reason-coded ALARM SHELF_BREACH. Multi-session, ledger, reconciliation, Telegram and learned/reveal vision tests belong to later milestones, not this checkpoint.
 

@@ -14,7 +14,7 @@ void earlyReset(void) __attribute__((naked, section(".init3"), used));
 void earlyReset(void) { resetCause=MCUSR; MCUSR=0; wdt_disable(); }
 MFRC522 readers[READER_COUNT];
 char line[97], pendingUid[21];
-uint8_t lineLen=0, nextReader=0, sessions=0, failures=0, failLimit=DEFAULT_FAIL_LIMIT;
+uint8_t lineLen=0, nextReader=0, pendingReader=0, sessions=0, failures=0, failLimit=DEFAULT_FAIL_LIMIT;
 uint16_t sequence=0, pendingSeq=0, windowS=DEFAULT_WINDOW_S, alarmS=DEFAULT_ALARM_S;
 bool dropping=false, pending=false, haveFail=false, alarmOn=false, pwOn=false, muted=false;
 uint8_t feedback=255, alarmReason=A_PC, testKind=0;
@@ -58,6 +58,8 @@ void stopAlarm(const __FlashStringHelper *by){
   alarmOn=false;buzzer(false);Serial.print(F("{\"t\":\"ALARM_OFF\",\"by\":\""));Serial.print(by);Serial.println(F("\"}"));
 }
 void failed(const __FlashStringHelper *why){
+  // The gate threshold belongs to reader #1; item-reader denials are local feedback.
+  if(pendingReader!=0)return;
   uint32_t now=millis();
   if(!haveFail||elapsed(now,firstFail,(uint32_t)windowS*1000)){failures=0;firstFail=now;haveFail=true;}
   failures++;Serial.print(F("{\"t\":\"FAIL\",\"uid\":\""));Serial.print(pendingUid);Serial.print(F("\",\"n\":"));Serial.print(failures);Serial.print(F(",\"why\":\""));Serial.print(why);Serial.println(F("\"}"));
@@ -145,7 +147,8 @@ bool offlineScan(uint32_t hash){
   staging=false;sessions=offlineUserCount;
   if(logCount>=16||!nextEventId){wlError(F("FULL"));applyResult(R_PRM);return true;}
   uint8_t flags=cacheFlags(hash),result=R_DEN,event=3;
-  if(flags){
+  if(READER_COUNT==2 && ((pendingReader==0 && (flags&0x80)) || (pendingReader==1 && !(flags&0x80))))result=R_PRM;
+  else if(flags){
     if(!(flags&0x80)){
       bool inside=false;for(uint8_t i=0;i<offlineUserCount;i++)if(offlineUsers[i]==hash)inside=true;
       result=inside?R_OUT:offlineUserCount<8?R_IN:R_PRM;
@@ -236,11 +239,12 @@ void readCard(){
   const char hex[]="0123456789ABCDEF";for(uint8_t i=0;i<reader.uid.size;i++){pendingUid[2*i]=hex[reader.uid.uidByte[i]>>4];pendingUid[2*i+1]=hex[reader.uid.uidByte[i]&15];}pendingUid[reader.uid.size*2]=0;
   reader.PICC_HaltA();reader.PCD_StopCrypto1();uint32_t now=millis(),hash=uidHash(pendingUid);
   if(haveCard[rd]&&lastHash[rd]==hash&&!elapsed(now,lastCard[rd],CARD_DEBOUNCE_MS))return;
-  haveCard[rd]=true;lastHash[rd]=hash;lastCard[rd]=now;pendingSeq=++sequence;scanAt=now;
+  haveCard[rd]=true;lastHash[rd]=hash;lastCard[rd]=now;pendingSeq=++sequence;scanAt=now;pendingReader=rd;
   Serial.print(F("{\"t\":\"SCAN\",\"uid\":\""));Serial.print(pendingUid);Serial.print(F("\",\"seq\":"));Serial.print(pendingSeq);Serial.print(F(",\"rd\":"));Serial.print(rd);Serial.println(F("}"));
   if(!pcOk(now)&&offlineScan(hash))return;pending=true;
 }
 void buttonTick(uint32_t now){
+  if(!BUTTON_ENABLED)return;
   bool pressed=digitalRead(BUTTON_PIN)==LOW;if(pressed!=btnRaw){btnRaw=pressed;btnChanged=now;}
   if(btnRaw!=btnStable&&elapsed(now,btnChanged,30)){
     btnStable=btnRaw;if(btnStable)btnSince=now;else{bool longPress=elapsed(now,btnSince,1500);Serial.println(longPress?F("{\"t\":\"BTN\",\"k\":\"L\"}"):F("{\"t\":\"BTN\",\"k\":\"S\"}"));
@@ -253,11 +257,11 @@ void buttonTick(uint32_t now){
 }
 int freeRam(){extern int __heap_start,*__brkval;int top;return (int)&top-(__brkval?(int)__brkval:(int)&__heap_start);}
 void setup(){
-  pinMode(GREEN_PIN,OUTPUT);pinMode(RED_PIN,OUTPUT);pinMode(BUZZER_PIN,OUTPUT);pinMode(BUTTON_PIN,INPUT_PULLUP);buzzer(false);
+  pinMode(GREEN_PIN,OUTPUT);pinMode(RED_PIN,OUTPUT);pinMode(BUZZER_PIN,OUTPUT);if(BUTTON_ENABLED)pinMode(BUTTON_PIN,INPUT_PULLUP);buzzer(false);
   Serial.begin(SERIAL_BAUD);SPI.begin();
   for(uint8_t i=0;i<READER_COUNT;i++){uint8_t ss=i?RFID_SS_1:RFID_SS;pinMode(ss,OUTPUT);digitalWrite(ss,HIGH);}
   for(uint8_t i=0;i<READER_COUNT;i++)readers[i].PCD_Init(i?RFID_SS_1:RFID_SS,i?RFID_RST_1:RFID_RST);
-  loadOffline();lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.0\",\"rst\":\""));
+  loadOffline();lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.1\",\"rst\":\""));
   Serial.print(resetCause&_BV(WDRF)?F("WDT"):resetCause&_BV(BORF)?F("BOR"):resetCause&_BV(EXTRF)?F("EXT"):F("PWR"));Serial.print(F("\",\"rd\":"));Serial.print(READER_COUNT);Serial.print(F(",\"bid\":"));Serial.print(bootId);Serial.println(F("}"));
 #if USE_WDT
   wdt_enable(WDTO_2S);

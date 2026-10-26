@@ -1,4 +1,12 @@
-# Architecture: v2 M2 checkpoint
+# Architecture: current operational build
+
+The 2026-10-27 request resumes development beyond M2. Physical reader #1 (wire rd=0, D10/D9) handles badges; reader #2 (rd=1, D4/D5) handles items. Firmware 2.1 retains protocol 2.0, disables the absent button and confines gate-failure counting to rd=0. Strict mode rejects old firmware. Four TTL sessions and tag/permission/item state are cached in Engine. Serial SCAN decisions and FB confirmation update RAM before SQL. A separate timer thread expires sessions and escalates unresolved removals without SQL/camera/provider calls. The event worker drains a bounded ordered queue; a failed head remains for retry, exposed in health.
+
+SQLite's additive schema version 3 retains history. Transactions and reconciliations have idempotency tokens; each reconciliation and its incident commit together. Management refreshes RAM and EEPROM. Offline cached badges/items include levels, while replay remains commit-before-ACK and deliberately does not fabricate attributed loans.
+
+Phone MJPEG feeds item/reveal detection, learned four-anchor homography (three-anchor affine fallback), voting and health supervision. Calibration pause suppresses new shelf rules while retaining gate feedback and already armed deadlines. Removal-time frames remain in bounded RAM through grace for evidence. The laptop webcam previews RAM frames; default saved gate photos occur only at GATE_3_FAIL. WhatsApp and optional Telegram run in separate notification workers. WhatsApp uses expiring signed backend JPEG URLs; Telegram uploads JPEG bytes. UI includes sessions, ledger, reconciliation, levels/tags and learn/pause controls. Optional person detection/LCD/ultrasonic are absent. See CURRENT_SETUP.md.
+
+## Historical M2 architecture
 
 The current delivery stops after firmware/protocol and EEPROM offline/replay integration. M3–M8 add the ledger, multiple TTL sessions, strict reconciliation, Telegram, learned/reveal/rectified vision and modular dashboard. The original design is preserved in ARCHITECTURE_V1.md and tag v1.0. The supplied v2 prompt is the roadmap, not a claim that every requirement has shipped.
 

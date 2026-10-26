@@ -69,7 +69,7 @@ def test_failure_codes_patterns_and_reader_debounce():
     for r in ["DEN", "PRM", "NSS", "DEN"]:
         c.advance(1.6)
         b.receive({"t": "HB", "n": 0})
-        b.scan("DEADBEEF", rd=1)
+        b.scan("DEADBEEF", rd=0)  # gate threshold now belongs to the badge reader
         b.receive({"t": "AUTH", "seq": b.seq, "r": r, "n": 0})
     assert b.alarm and b.failures == 0
     b.receive({"t": "ACK"})

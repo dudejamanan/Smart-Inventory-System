@@ -8,7 +8,12 @@ from common import connect, wait_for, encode
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port")
-    parser.add_argument("--readers", type=int, choices=[1, 2], default=1)
+    parser.add_argument("--readers", type=int, choices=[1, 2], default=2)
+    parser.add_argument(
+        "--button",
+        action="store_true",
+        help="Only if optional A0 button is wired and BUTTON_ENABLED=1",
+    )
     parser.add_argument(
         "--offline-fixture",
         action="store_true",
@@ -60,8 +65,13 @@ def main():
             assert event["rd"] == 1, "Tag was read by the wrong reader"
             write({"t": "AUTH", "seq": event["seq"], "r": "DEN", "n": 0})
             print("Reader 1 scan: PASS")
-        print("Press/release D4 briefly, then hold >=1.5 s and release (20 s each).")
-        for kind in ["S", "L"]:
+        if args.button:
+            print(
+                "Press/release A0 briefly, then hold >=1.5 s and release (20 s each)."
+            )
+        else:
+            print("Button: SKIPPED (not present in supplied circuit)")
+        for kind in ["S", "L"] if args.button else []:
             wait_for(
                 board, lambda e: e["t"] == "BTN" and e["k"] == kind, 20, heartbeat=False
             )

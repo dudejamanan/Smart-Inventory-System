@@ -184,6 +184,16 @@ class OfflineCoordinator:
 
 def badge_entries(engine):
     with engine.auth_lock:
-        uids = sorted(engine.whitelist)
-    # Level fields/item tag registry arrive at M3. M2 badges use safe default L1.
-    return [(fnv1a(uid), 1, False) for uid in uids]
+        entries = [
+            (fnv1a(uid), p.get("level", 1), False)
+            for uid, p in sorted(engine.whitelist.items())
+        ]
+        entries += [
+            (fnv1a(uid), p["min_level"], True)
+            for uid, p in sorted(getattr(engine, "items", {}).items())
+        ]
+    if len({h for h, _, _ in entries}) != len(entries):
+        raise ValueError(
+            "UID hash collision: change the conflicting tag before offline sync"
+        )
+    return entries

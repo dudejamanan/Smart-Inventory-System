@@ -6,7 +6,11 @@ from app.db.models import Incident, ShelfSlot
 
 
 def test_zone_permissions_warn_only_when_enabled(tmp_path):
-    c = Config(data_dir=tmp_path, admin_password="zone-test-password")
+    c = Config(
+        data_dir=tmp_path,
+        admin_password="zone-test-password",
+        removal_policy="session_lenient",
+    )
     app = create_app(c, simulate=True, start_services=False)
     r = app.state.runtime
     with TestClient(app) as client:

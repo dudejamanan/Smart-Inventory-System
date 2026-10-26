@@ -173,10 +173,21 @@ class SyntheticShelfSource(FrameSource):
                 )
             elif state == "occluded":
                 cv2.rectangle(image, (x, 170), (x + 200, 400), (70, 110, 170), -1)
-        for ident, x in [(40, 70), (41, 800)]:
-            offset = 40 if self.moved else 0
-            image[20:80, x + offset : x + offset + 60] = cv2.cvtColor(
+            elif state == "absent":
+                image[215:355, x + 30 : x + 170] = cv2.cvtColor(
+                    marker(ident + 20, 140), cv2.COLOR_GRAY2BGR
+                )
+        for ident, x, y in [(40, 70, 20), (41, 800, 20), (42, 70, 465), (43, 800, 465)]:
+            image[y : y + 60, x : x + 60] = cv2.cvtColor(
                 marker(ident, 60), cv2.COLOR_GRAY2BGR
+            )
+        if self.moved:
+            # Move the complete image/plane, not just the anchor glyphs.
+            image = cv2.warpAffine(
+                image,
+                np.float32([[0.97, 0.015, 50], [-0.01, 0.97, 10]]),
+                (960, 540),
+                borderValue=(220, 220, 220),
             )
         return image
 

@@ -39,6 +39,7 @@ class SimulatedArduino:
         self.events = deque()
         self.seq = 0
         self.pending = None
+        self.pending_reader = 0
         self.n = 0
         self.last_hb = clock()
         self.last_emit = clock()
@@ -80,7 +81,7 @@ class SimulatedArduino:
         self.stage_expected = 0
         self.replay_at = -100.0
         self.was_online = True
-        self.emit("BOOT", fw="2.0", rst=self.reset_cause, rd=readers, bid=self.boot_id)
+        self.emit("BOOT", fw="2.1", rst=self.reset_cause, rd=readers, bid=self.boot_id)
 
     def emit(self, t, **kw):
         self.events.append({"t": t, **kw})
@@ -114,6 +115,8 @@ class SimulatedArduino:
         self.emit("ALARM_OFF", by=by)
 
     def fail(self, uid, why):
+        if self.pending_reader != 0:
+            return
         now = self.clock()
         if self.first_fail is None or now - self.first_fail >= self.c.fail_window_s:
             self.failures = 0
@@ -148,6 +151,7 @@ class SimulatedArduino:
         ):
             return
         self.last_scan[rd] = (uid, now)
+        self.pending_reader = rd
         self.seq = (self.seq + 1) & 65535
         self.emit("SCAN", uid=uid, seq=self.seq, rd=rd)
         if not self.pcok and self.offline_scan(uid, self.seq, now):
@@ -199,7 +203,12 @@ class SimulatedArduino:
         entry = next((e for e in self.whitelist if e[0] == h), None)
         result = "DEN"
         event = "DEN"
-        if entry:
+        if self.readers == 2 and (
+            (self.pending_reader == 0 and entry and entry[2])
+            or (self.pending_reader == 1 and (not entry or not entry[2]))
+        ):
+            result = "PRM"
+        elif entry:
             _, level, item = entry
             if not item:
                 if any(e[0] == h for e in self.offline_sessions):

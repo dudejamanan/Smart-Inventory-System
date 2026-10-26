@@ -2,6 +2,7 @@ import hashlib
 import logging
 import time
 import uuid
+import threading
 from concurrent.futures import ThreadPoolExecutor
 import cv2
 from sqlalchemy import select
@@ -16,6 +17,32 @@ class Evidence:
         self.source, self.store, self.c = source, store, c
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="evidence")
         self.photos = {}
+        self.preview = {}
+        self.preview_lock = threading.Lock()
+
+    def remember(self, slot_id):
+        # Called only after controller dispatch. Keep detection-time frames in RAM
+        # through the grace period; don't save lawful-removal photos to disk.
+        with self.preview_lock:
+            now = time.monotonic()
+            history = self.source.history()
+            selected = {
+                t: (t, f)
+                for target in [now - 2, now - 1, now]
+                for t, f in (
+                    [min(history, key=lambda v: abs(v[0] - target))] if history else []
+                )
+            }
+            self.preview[slot_id] = (now, list(selected.values()))
+            if len(self.preview) > 20:
+                self.preview.pop(next(iter(self.preview)))
+
+    def schedule_for_slot(self, ident, slot_id):
+        with self.preview_lock:
+            pending = self.preview.pop(slot_id, None)
+        if pending and time.monotonic() - pending[0] < 90:
+            return self.pool.submit(self.capture, ident, *pending)
+        return self.schedule(ident)
 
     def record(self, incident, kind, path):
         with self.store.session() as s:
@@ -51,7 +78,7 @@ class Evidence:
                 )
             time.sleep(1)
             after = self.source.history()
-            if after:
+            if after and min(abs(t - (t0 + 1)) for t, _ in after) <= 1:
                 self.save_photo(
                     ident, "T+1", min(after, key=lambda v: abs(v[0] - (t0 + 1)))[1]
                 )

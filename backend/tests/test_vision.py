@@ -9,11 +9,11 @@ def test_real_marker_detection_and_empty_logic():
     roi = (0.06, 0.25, 0.26, 0.55)
     empty = crop(source.empty(), roi)
     frame = source.grab()
-    assert set(detect(frame)) == {0, 1, 2, 40, 41}
+    assert set(detect(frame)) == {0, 1, 2, 40, 41, 42, 43}
     assert classify(frame, roi, 0, detect(frame), empty, 12) == "PRESENT"
     source.states[0] = "absent"
     frame = source.grab()
-    assert classify(frame, roi, 0, detect(frame), empty, 12) == "ABSENT"
+    assert classify(frame, roi, 0, detect(frame), empty, 12, mode="both") == "ABSENT"
     source.states[0] = "occluded"
     frame = source.grab()
     assert classify(frame, roi, 0, detect(frame), empty, 12) == "OCCLUDED"

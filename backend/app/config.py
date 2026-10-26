@@ -33,7 +33,18 @@ class Config(BaseSettings):
     covered_variance: float = Field(5, ge=0)
     anchor_tolerance: float = Field(0.04, gt=0, le=1)
     retention_days: int = Field(30, ge=1)
-    log_valid_scan_photos: bool = True
+    log_valid_scan_photos: bool = False
+    gate_photo_policy: str = "third_failure"
+    removal_policy: str = "strict_issue"
+    max_sessions: int = Field(4, ge=1, le=8)
+    session_ttl_min: float = Field(30, gt=0)
+    attribution_window_s: float = Field(30, gt=0)
+    removal_grace_s: int = Field(10, ge=1, le=60)
+    issue_token_ttl_s: float = Field(30, gt=0)
+    return_grace_s: float = Field(20, gt=0)
+    return_place_s: float = Field(60, gt=0)
+    overdue_check_s: float = Field(30, gt=0)
+    slot_mode: str = "both"
     gate_camera_index: int = 0
     shelf_stream_url: str = ""
     shelf_video_file: str = ""
@@ -44,6 +55,9 @@ class Config(BaseSettings):
     twilio_whatsapp_from: str = ""
     owner_whatsapp_to: str = ""
     public_base_url: str = ""
+    notify_channels: str = "whatsapp"
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
 
     @field_validator("data_dir")
     @classmethod
@@ -52,6 +66,14 @@ class Config(BaseSettings):
 
     @model_validator(mode="after")
     def consistent(self):
+        if set(self.notify_channels.split(",")) - {"whatsapp", "telegram", ""}:
+            raise ValueError("NOTIFY_CHANNELS supports whatsapp,telegram")
+        if self.removal_policy not in {"strict_issue", "session_lenient"}:
+            raise ValueError("Invalid removal policy")
+        if self.gate_photo_policy not in {"third_failure", "every_scan"}:
+            raise ValueError("Invalid gate photo policy")
+        if self.slot_mode not in {"both", "reveal", "empty_ref"}:
+            raise ValueError("Invalid slot mode")
         if self.debounce_n > self.debounce_m:
             raise ValueError("DEBOUNCE_N must not exceed DEBOUNCE_M")
         if self.whatsapp_on not in {"third_failure", "every_failure"}:

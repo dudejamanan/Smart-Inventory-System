@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
+import { Ledger } from "./Ledger";
 
 type Row = Record<string, any>;
 async function api(path: string, method = "GET", body?: unknown): Promise<any> {
@@ -180,6 +181,7 @@ function App() {
             "Incidents",
             "Personnel",
             "Inventory",
+            "Ledger",
             "Calibration",
             "Settings",
             "System health",
@@ -192,7 +194,7 @@ function App() {
                 setDetail(null);
               }}
             >
-              <span>{["◉", "⚑", "♙", "▦", "⌖", "⚙", "◷"][i]}</span>
+              <span>{["◉", "⚑", "♙", "▦", "≡", "⌖", "⚙", "◷"][i]}</span>
               {p}
               {p === "Incidents" && (
                 <b>{incidents.filter((i) => i.status === "OPEN").length}</b>
@@ -244,11 +246,28 @@ function App() {
             <button onClick={() => setError("")}>Dismiss</button>
           </div>
         )}
-        {status.checkpoint && (
+        {status.removal_policy === "session_lenient" && (
           <div className="warning">
-            Hardware test checkpoint: item issuing and strict removal
-            reconciliation are not enabled yet. Online access still uses the
-            existing single-worker policy.
+            Legacy demonstration policy: a session suppresses shelf alarms. Use
+            strict_issue for item-specific checks.
+          </div>
+        )}
+        {status.notifier_error && (
+          <div className="warning">{status.notifier_error}</div>
+        )}
+        {status.rules_persistence_error && (
+          <div className="error" role="alert">
+            {status.rules_persistence_error} · {status.rules_pending_writes}{" "}
+            pending writes
+          </div>
+        )}
+        {status.telegram_error && (
+          <div className="warning">{status.telegram_error}</div>
+        )}
+        {status.monitoring_paused && (
+          <div className="warning">
+            Shelf monitoring paused for calibration. RFID and gate alarm remain
+            active.
           </div>
         )}
         {status.serial?.error && (
@@ -291,14 +310,14 @@ function App() {
             <section className="gate-strip">
               <div>
                 <span className="caption">Gate access</span>
-                <strong>
-                  {status.session ? "Worker checked in" : "No active session"}
-                </strong>
+                <strong>{status.sessions?.length || 0} active sessions</strong>
               </div>
               <div>
                 <span className="caption">Current worker</span>
                 <strong>
-                  {status.session?.name || "Unattended warehouse"}
+                  {status.sessions?.map((s: Row) => s.name).join(", ") ||
+                    status.session?.name ||
+                    "Unattended warehouse"}
                 </strong>
               </div>
               <div>
@@ -312,6 +331,30 @@ function App() {
                 <span className="caption">Shelf camera</span>
                 <Badge value={status.shelf_camera} />
               </div>
+            </section>
+            <section className="panel">
+              <h2>Open sessions</h2>
+              {(status.sessions || []).map((s: Row) => (
+                <p key={s.uid}>
+                  {s.name} · expires {date(s.expires_ts)} ·{" "}
+                  {Math.max(
+                    0,
+                    Math.ceil((s.expires_ts - Date.now() / 1000) / 60),
+                  )}{" "}
+                  minutes remaining
+                </p>
+              ))}
+              <p>
+                Reader #1: badge in/out. Reader #2: item issue/return. With
+                multiple people, the most recent badge within 30 seconds
+                receives the item; otherwise attribution is refused.
+              </p>
+              {(status.pending_removals || []).map((p: Row) => (
+                <p key={p.slot_id}>
+                  Slot {p.slot_id}: scan its permitted item before{" "}
+                  {date(p.deadline)}
+                </p>
+              ))}
             </section>
             <div className="live-layout">
               <section className="panel shelf-panel">
@@ -499,8 +542,8 @@ function App() {
             <Manager
               resource="personnel"
               title="Personnel"
-              fields={["name", "uid", "active"]}
-              defaults={{ name: "", uid: "", active: true }}
+              fields={["name", "uid", "level", "active"]}
+              defaults={{ name: "", uid: "", level: 1, active: true }}
               act={act}
               tick={tick}
               enrolled={status.enrolled_uid}
@@ -523,10 +566,25 @@ function App() {
             <Manager
               resource="inventory"
               title="Inventory items"
-              fields={["name", "marker_id", "notes"]}
-              defaults={{ name: "", marker_id: 0, notes: "" }}
+              fields={[
+                "name",
+                "marker_id",
+                "tag_uid",
+                "min_level",
+                "loan_minutes",
+                "notes",
+              ]}
+              defaults={{
+                name: "",
+                marker_id: 0,
+                tag_uid: "",
+                min_level: 1,
+                loan_minutes: 60,
+                notes: "",
+              }}
               act={act}
               tick={tick}
+              enrolled={status.enrolled_uid}
             />
             <Manager
               resource="slots"
@@ -556,6 +614,7 @@ function App() {
             />
           </>
         )}
+        {page === "Ledger" && <Ledger load={api} tick={tick} />}
         {page === "Calibration" && <CalibrationPanel slots={slots} act={act} />}
         {page === "Settings" && <Settings act={act} />}
         {page === "System health" && (
@@ -587,7 +646,14 @@ function App() {
                   "Offline whitelist",
                   status.offline_whitelist?.state || "Unknown",
                 ],
-                ["Cached badge count", status.offline_whitelist?.count ?? 0],
+                [
+                  "Cached badge / item tags",
+                  status.offline_whitelist?.count ?? 0,
+                ],
+                ["Shelf alignment", status.rectification],
+                ["Anchor residual", status.anchor_residual ?? "Unlearned"],
+                ["Reader #1", "SS D10 / RST D9 · badges"],
+                ["Reader #2", "SS D4 / RST D5 · items"],
                 [
                   "Whitelist diagnostic",
                   status.offline_whitelist?.error || "None",
@@ -719,16 +785,20 @@ function Manager({
     api(resource).then(setRows);
   }, [resource, tick]);
   useEffect(() => {
-    if (enrolled) setEdit((e) => ({ ...e, uid: enrolled }));
+    if (enrolled)
+      setEdit((e) => ({
+        ...e,
+        [resource === "inventory" ? "tag_uid" : "uid"]: enrolled,
+      }));
   }, [enrolled]);
   return (
     <section className="panel">
       <div className="panel-title">
         <h2>{title}</h2>
-        {resource === "personnel" && (
+        {["personnel", "inventory"].includes(resource) && (
           <button
             className="secondary"
-            onClick={() => act(() => api("personnel/enrol", "POST"))}
+            onClick={() => act(() => api(resource + "/enrol", "POST"))}
           >
             Enrol next scanned card
           </button>
@@ -783,11 +853,12 @@ function Manager({
         onSubmit={(e) => {
           e.preventDefault();
           act(async () => {
-            await api(
-              resource + (id ? "/" + id : ""),
-              id ? "PUT" : "POST",
-              edit,
-            );
+            await api(resource + (id ? "/" + id : ""), id ? "PUT" : "POST", {
+              ...edit,
+              ...(resource === "inventory"
+                ? { tag_uid: edit.tag_uid || null }
+                : {}),
+            });
             setEdit({ ...defaults });
             setId(null);
             setRows(await api(resource));
@@ -806,7 +877,9 @@ function Manager({
                 />
               ) : (
                 <input
-                  required={!["notes", "zone_id", "item_id"].includes(f)}
+                  required={
+                    !["notes", "zone_id", "item_id", "tag_uid"].includes(f)
+                  }
                   type={
                     typeof defaults[f] === "number" ||
                     ["zone_id", "item_id"].includes(f)
@@ -823,7 +896,7 @@ function Manager({
                           ? e.target.value === ""
                             ? null
                             : Number(e.target.value)
-                          : f === "uid"
+                          : ["uid", "tag_uid"].includes(f)
                             ? e.target.value.toUpperCase()
                             : e.target.value,
                     })
@@ -868,6 +941,25 @@ function CalibrationPanel({ slots, act }: { slots: Row[]; act: Act }) {
   return (
     <section className="panel">
       <h2>Define the shelf slots</h2>
+      <div className="actions">
+        <button
+          onClick={() =>
+            act(() => api("calibration/pause", "POST", { paused: true }))
+          }
+        >
+          Pause shelf rules
+        </button>
+        <button onClick={() => act(() => api("calibration/learn", "POST"))}>
+          Learn shelf (all items present)
+        </button>
+        <button
+          onClick={() =>
+            act(() => api("calibration/pause", "POST", { paused: false }))
+          }
+        >
+          Resume shelf rules
+        </button>
+      </div>
       <p>
         Select a slot, then drag a rectangle around its box area. Remove the box
         before capturing its empty reference.
@@ -951,8 +1043,9 @@ function CalibrationPanel({ slots, act }: { slots: Row[]; act: Act }) {
       </div>
       <h3>Print markers</h3>
       <p>
-        Use item markers 0–29; anchor markers 40–49 stay fixed to the shelf. Use
-        the marker PDF tool for accurate physical sizes.
+        Use item markers 0–19; reveal marker 20+n sits behind item n. Keep at
+        least four anchors 40–49 fixed around the shelf. Use the marker PDF tool
+        for accurate physical sizes.
       </p>
       {slots.map((s) => (
         <a
@@ -1032,15 +1125,24 @@ function Simulator({ act }: { act: Act }) {
         Exercise the same event engine and vision pipeline without hardware.
       </p>
       <div className="actions">
-        <button
-          onClick={() =>
-            act(() =>
-              api("sim/control", "POST", { action: "scan", uid: "A1B2C3D4" }),
-            )
-          }
-        >
-          Tap Aarav's card
-        </button>
+        {[
+          ["Aarav badge", "A1B2C3D4", 0],
+          ["Meera badge", "11223344", 0],
+          ["Resistor item", "01020304", 1],
+          ["Multimeter item", "05060708", 1],
+          ["Raspberry Pi item", "090A0B0C", 1],
+        ].map(([label, uid, reader]) => (
+          <button
+            key={String(uid)}
+            onClick={() =>
+              act(() =>
+                api("sim/control", "POST", { action: "scan", uid, reader }),
+              )
+            }
+          >
+            Tap {label}
+          </button>
+        ))}
         <button
           className="secondary"
           onClick={() =>

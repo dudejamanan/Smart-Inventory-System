@@ -30,6 +30,7 @@ def run_scenarios(data_dir, report=print):
         media_url_secret="test-media-secret" * 3,
         twilio_account_sid="",
         twilio_auth_token="",
+        removal_policy="session_lenient",  # explicit v1 regression profile
     )
     app = create_app(c, simulate=True)
     with TestClient(app) as client:
@@ -152,8 +153,12 @@ def main():
         if not args.checkpoint_only:
             run_scenarios(directory)
         run_checkpoint_scenarios(Path(directory) / "checkpoint")
+        if not args.checkpoint_only:
+            from operational_scenarios import run_operational_scenarios
+
+            run_operational_scenarios(Path(directory) / "operational")
     print(
-        "PASS checkpoint scenarios; default run also includes all 10 threaded regression scenarios. Synthetic hardware; no electrical claims."
+        "PASS: offline checkpoint; default run also includes 10 threaded regressions and 17 operational checks. Synthetic hardware; no electrical claims."
     )
 
 

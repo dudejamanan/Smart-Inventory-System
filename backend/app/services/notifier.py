@@ -17,6 +17,7 @@ from twilio.http.http_client import TwilioHttpClient
 from app.db.models import Notification, Setting
 from app.services.frames import jpeg
 import cv2
+import httpx
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +103,35 @@ class TwilioNotifier:
         return msg.sid, msg.status
 
 
+class TelegramNotifier:
+    """Direct multipart upload: no public camera URL or tunnel is needed."""
+
+    def __init__(self, c, client=None):
+        self.c = c
+        logging.getLogger("httpx").setLevel(logging.WARNING)  # bot token is in the URL
+        self.client = client or httpx.Client(timeout=5)
+
+    def send(self, body, media_url=None):
+        endpoint = "sendPhoto" if media_url else "sendMessage"
+        url = f"https://api.telegram.org/bot{self.c.telegram_bot_token}/{endpoint}"
+        if media_url:
+            with Path(media_url).open("rb") as photo:
+                response = self.client.post(
+                    url,
+                    data={"chat_id": self.c.telegram_chat_id, "caption": body[:1024]},
+                    files={"photo": ("evidence.jpg", photo, "image/jpeg")},
+                )
+        else:
+            response = self.client.post(
+                url, json={"chat_id": self.c.telegram_chat_id, "text": body}
+            )
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok"):
+            raise OSError("Telegram rejected request")
+        return str(data["result"]["message_id"]), "SENT"
+
+
 def prepare_media(path: Path, root: Path):
     frame = cv2.imread(str(path))
     if frame is None:
@@ -138,6 +168,40 @@ class NotificationQueue:
         self.thread = None
         self.photo = lambda source, seq: None
         self.last_send = 0.0
+        self.configuration_error = None
+        if (
+            not provider
+            and any(
+                [
+                    c.twilio_account_sid,
+                    c.twilio_auth_token,
+                    c.twilio_whatsapp_from,
+                    c.owner_whatsapp_to,
+                    c.public_base_url,
+                ]
+            )
+            and not all(
+                [
+                    c.twilio_account_sid,
+                    c.twilio_auth_token,
+                    c.twilio_whatsapp_from,
+                    c.owner_whatsapp_to,
+                    c.public_base_url.startswith("https://"),
+                ]
+            )
+        ):
+            self.configuration_error = "Incomplete WhatsApp setup: SID, token, sender, owner and public HTTPS URL are required"
+        self.enabled = "whatsapp" in c.notify_channels.split(",") or isinstance(
+            self.provider, TelegramNotifier
+        )
+        if not self.enabled:
+            self.configuration_error = None
+        if isinstance(self.provider, TelegramNotifier) and not (
+            c.telegram_bot_token and c.telegram_chat_id
+        ):
+            self.configuration_error = (
+                "Telegram needs TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+            )
 
     def enqueue(self, incident, kind, uid, source, seq):
         with self.lock:
@@ -148,8 +212,16 @@ class NotificationQueue:
             rows = []
             for part in ["text", "media"]:
                 n = Notification(
+                    channel="telegram"
+                    if isinstance(self.provider, TelegramNotifier)
+                    else "whatsapp",
                     incident_id=incident,
-                    to=self.c.owner_whatsapp_to or "mock-owner",
+                    to=(
+                        self.c.telegram_chat_id
+                        if isinstance(self.provider, TelegramNotifier)
+                        else self.c.owner_whatsapp_to
+                    )
+                    or "mock-owner",
                     kind=part,
                     status="RATE_LIMITED" if limited else "QUEUED",
                 )
@@ -205,6 +277,16 @@ class NotificationQueue:
 
     def process(self, job):
         incident, kind, uid, source, seq, rows = job
+        if not self.enabled:
+            for ident in rows:
+                self.update(ident, status="DISABLED")
+            return
+        if self.configuration_error:
+            for ident in rows:
+                self.update(
+                    ident, status="FAILED_CONFIGURATION", error_code="SETUP_INCOMPLETE"
+                )
+            return
         if self.stop.is_set():
             for ident in rows:
                 self.update(ident, status="CANCELLED_SHUTDOWN")
@@ -221,6 +303,9 @@ class NotificationQueue:
                 self.update(rows[1], status="NO_PHOTO")
                 return
             photo = prepare_media(Path(path), self.c.data_dir)
+            if isinstance(self.provider, TelegramNotifier):
+                self.deliver(rows[1], body, str(photo))
+                return
             url = (
                 self.c.public_base_url.rstrip("/")
                 + "/media/"

@@ -9,8 +9,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    Index,
-    func,
 )
 from sqlalchemy.orm import declarative_base
 
@@ -23,6 +21,7 @@ class Personnel(Base):
     uid = Column(String(20), unique=True, nullable=False, index=True)
     name = Column(String(120), nullable=False)
     active = Column(Boolean, default=True, nullable=False)
+    level = Column(Integer, default=1, nullable=False)
     created_at = Column(Float, default=time.time)
 
 
@@ -32,14 +31,8 @@ class Session(Base):
     personnel_id = Column(Integer, ForeignKey("personnel.id"), nullable=False)
     start_ts = Column(Float, default=time.time, index=True)
     end_ts = Column(Float, nullable=True, index=True)
-
-
-Index(
-    "one_open_session",
-    func.coalesce(Session.end_ts, 0),
-    unique=True,
-    sqlite_where=Session.end_ts.is_(None),
-)
+    expires_ts = Column(Float, nullable=True)
+    end_reason = Column(String(20), nullable=True)
 
 
 class InventoryItem(Base):
@@ -48,6 +41,12 @@ class InventoryItem(Base):
     name = Column(String(120), nullable=False)
     marker_id = Column(Integer, unique=True, nullable=False)
     notes = Column(Text, default="")
+    tag_uid = Column(String(20), unique=True, nullable=True)
+    min_level = Column(Integer, default=1, nullable=False)
+    loan_minutes = Column(Integer, default=60, nullable=False)
+    status = Column(String(20), default="AVAILABLE", nullable=False)
+    holder_id = Column(Integer, ForeignKey("personnel.id"), nullable=True)
+    due_ts = Column(Float, nullable=True)
 
 
 class Zone(Base):
@@ -159,3 +158,32 @@ class OfflineRecord(Base):
     event = Column(String(4), nullable=False)
     observed_ts = Column(Float, nullable=False)
     received_ts = Column(Float, nullable=False)
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+    id = Column(Integer, primary_key=True)
+    token = Column(String(40), unique=True, nullable=False)
+    ts = Column(Float, nullable=False, index=True)
+    kind = Column(String(20), nullable=False)
+    personnel_id = Column(Integer, ForeignKey("personnel.id"), nullable=True)
+    item_id = Column(Integer, ForeignKey("inventory_items.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
+    reader = Column(Integer, nullable=False)
+    seq = Column(Integer, nullable=False)
+    due_ts = Column(Float, nullable=True)
+    note = Column(Text, default="")
+
+
+class Reconciliation(Base):
+    __tablename__ = "reconciliations"
+    id = Column(Integer, primary_key=True)
+    token = Column(String(40), unique=True, nullable=True)
+    ts = Column(Float, nullable=False)
+    slot_id = Column(Integer, ForeignKey("shelf_slots.id"), nullable=False)
+    item_id = Column(Integer, ForeignKey("inventory_items.id"), nullable=True)
+    observed_ts = Column(Float, nullable=False)
+    tx_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+    verdict = Column(String(30), nullable=False)
+    delta_ms = Column(Integer, nullable=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id"), nullable=True)

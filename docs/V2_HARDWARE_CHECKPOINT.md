@@ -1,5 +1,7 @@
 # v2 M2: do these hardware steps in order
 
+**Historical M2 handoff.** Development resumed on 2026-10-27 with different wiring. Use CURRENT_SETUP.md for firmware 2.1 and reader #2 D4/D5; the D5/D3 reader and D4 button below are not the current circuit.
+
 This is the requested **stop-after-M2** checkpoint. Protocol/firmware, EEPROM offline authorization and replay are implemented. Multiple online sessions, TTLs, online item enrolment/ledger, strict declared-versus-observed reconciliation, Telegram, reveal/rectified vision and the redesigned dashboard are **not implemented yet** (M3–M8). The existing dashboard is a temporary hardware test interface with its old single-worker/session-lenient policy. Do not demonstrate it as full v2 security.
 
 All commands below are PowerShell at `D:\inventorySystem`; use your own port, not necessarily COM3. No command in development flashed a real board. Physical observations still belong to you.

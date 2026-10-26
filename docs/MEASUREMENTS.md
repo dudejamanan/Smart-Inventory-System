@@ -1,5 +1,7 @@
 # Real measurements (blank until you measure them)
 
+Current circuit/setup is CURRENT_SETUP.md (firmware 2.1, second reader D4/D5, absent button skipped). Record compiler globals only in OPERATIONAL_VERIFICATION.md, not as real free-RAM or timing samples. Use TEST_PLAN.md's current acceptance table for both cameras, gate-only third-failure photos, item reconciliation and actual provider delivery. Historical optional-button measurements below apply only if it is later wired to A0 and enabled.
+
 Compilation, simulation and host timestamps are not electrical results. Keep raw output/traces, the firmware variant, board model, port, lighting, supply arrangement and date beside each observation. All result cells below are intentionally blank.
 
 ## Compile versus runtime memory

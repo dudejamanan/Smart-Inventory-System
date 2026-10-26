@@ -1,5 +1,7 @@
 # Hardware guide
 
+**Current supplied circuit:** use CURRENT_SETUP.md. Reader #1 SS/RST D10/D9; reader #2 D4/D5; button disabled (optional A0). Main firmware 2.1 defaults to two readers. Earlier M2 D5/D3 + D4-button wiring does not match this circuit. Shared power is subject to the actual 3.3 V supply current budget; verify both modules and level shifting before powering.
+
 **v2 M2 users:** this remains the v1 assembly/reference guide. Follow [V2_HARDWARE_CHECKPOINT](V2_HARDWARE_CHECKPOINT.md) for authoritative v2 pin additions, two-reader power/dividers, button, watchdog, uploads, offline/replay and exact ordered tests. The old BUSY/session and protocol examples below apply only to tag v1.0.
 
 ## 1. Parts and vocabulary

@@ -71,7 +71,8 @@ def test_auth_crud_settings_and_calibration(api_client):
         == 422
     )
     assert client.get("/api/markers/0.png").headers["content-type"] == "image/png"
-    assert client.get("/api/markers/39.png").status_code == 422
+    assert client.get("/api/markers/39.png").status_code == 200  # reveal marker
+    assert client.get("/api/markers/50.png").status_code == 422
     assert (
         client.post(
             "/api/calibration/slot",

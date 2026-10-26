@@ -1,5 +1,7 @@
 # v2 audit and checkpoint plan
 
+**Historical M0–M2 audit.** The user resumed development on 2026-10-27 and supplied the current D4/D5 second-reader circuit. See CURRENT_SETUP.md and OPERATIONAL_VERIFICATION.md for implemented operational rules and current scope; the original stop described below was honoured at its original handoff.
+
 Baseline: v1.0 at a1a9f1d. On 2026-10-25, `python -m pytest -q` in the Python 3.11 venv: **28 passed, 1 warning in 46.63 s**. No baseline behavior was changed for M0. The v1 reference is preserved by tag v1.0; ongoing work is on branch v2.
 
 The supplied CODEX_PROMPT_v2 is useful: its F1–F7 correctly identify limits of a single worker/session, UID-only personnel, session-lenient shelf removals, PC-only authentication, empty-reference vision, and sandbox-only notifications. Its M2 checkpoint is deliberate. **This delivery stops after M2**; it does not claim to implement the ledger/reconciliation/Telegram/anchor/UI requirements of M3–M8.

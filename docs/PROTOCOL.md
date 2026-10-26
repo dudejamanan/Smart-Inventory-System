@@ -1,4 +1,6 @@
-# Serial protocol v2 (M2 hardware checkpoint)
+# Serial protocol v2 (current firmware 2.1)
+
+Current physical roles: rd=0 badge reader D10/D9; rd=1 item reader D4/D5. Firmware 2.1 preserves this wire schema and identifies the changed hardware/failure profile. Only rd=0 denials/timeouts count toward GATE_3_FAIL; item denials still give result feedback. Button is disabled in this circuit (optional A0). Online AUTH decisions are now backed by TTL sessions, levels and issue/return ledger. Historical M2 policy notes below are superseded by CURRENT_SETUP.md where they describe single-session/L1-only behavior.
 
 115200 baud, 8N1, LF-delimited flat ASCII JSON, **at most 96 bytes excluding LF** (CR counts). Uppercase UID hex is 8/14/20 characters. Hashes are exactly 8 uppercase hex characters. Sequences wrap at 16 bits. Both parsers reject malformed/oversized input and duplicate keys. UNO discards oversized lines through LF. No heap strings or JSON library on the board.
 

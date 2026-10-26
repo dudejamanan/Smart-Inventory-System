@@ -1,7 +1,7 @@
 from app.config import Config
 from app.db.store import Store
 from app.db.models import FailedScan, Incident, SecurityEvent
-from app.services.engine import Engine
+from app.services.legacy_engine import Engine
 from sqlalchemy import select
 
 

@@ -1,5 +1,7 @@
 # Shelf calibration
 
+Current learn/reveal/anchor procedure is CURRENT_SETUP.md section 5. Pause shelf rules before moving boxes during setup. Item markers 0–19, reveal 20+n behind item n, four fixed corner anchors 40–49. Learn with all configured items present; refine ROIs, verify each reveal location, capture each empty reference, restore all boxes, resume and confirm PRESENT. Four correspondences support projective rectification; three support affine only. The previous fixed ROI guidance below remains a fallback.
+
 ## 1. Prepare the scene
 
 1. Finish PHONE_CAMERA_SETUP and HARDWARE_GUIDE section 9. Keep the mount, lamp, orientation, focus and exposure fixed. Success: camera OK and all markers readable.

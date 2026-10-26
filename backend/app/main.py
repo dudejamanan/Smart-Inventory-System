@@ -29,6 +29,8 @@ from app.db.models import (
     Setting,
     Zone,
     PersonnelZone,
+    Transaction,
+    Reconciliation,
 )
 from app.db.store import row
 from app.runtime import Runtime, SAFE_SETTINGS
@@ -49,12 +51,18 @@ class PersonInput(StrictModel):
     uid: str = Field(pattern=r"^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$")
     name: str = Field(min_length=1, max_length=120)
     active: bool = True
+    level: int = Field(1, ge=1, le=3)
 
 
 class ItemInput(StrictModel):
     name: str = Field(min_length=1, max_length=120)
-    marker_id: int = Field(ge=0, le=29)
+    marker_id: int = Field(ge=0, le=19)
     notes: str = ""
+    tag_uid: str | None = Field(
+        None, pattern=r"^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$"
+    )
+    min_level: int = Field(1, ge=1, le=3)
+    loan_minutes: int = Field(60, ge=1, le=525600)
 
 
 class SlotInput(StrictModel):
@@ -63,7 +71,7 @@ class SlotInput(StrictModel):
     roi_y: float = Field(ge=0, lt=1)
     roi_w: float = Field(gt=0, le=1)
     roi_h: float = Field(gt=0, le=1)
-    marker_id: int = Field(ge=0, le=29)
+    marker_id: int = Field(ge=0, le=19)
     item_id: int | None = None
     zone_id: int | None = None
 
@@ -92,6 +100,10 @@ class SlotId(StrictModel):
     slot_id: int
 
 
+class PauseInput(StrictModel):
+    paused: bool
+
+
 class IncidentEdit(StrictModel):
     keep: bool = False
     notes: str = ""
@@ -102,6 +114,7 @@ class SimInput(StrictModel):
     uid: str = "A1B2C3D4"
     marker_id: int = Field(0, ge=0, le=29)
     state: str = "absent"
+    reader: int = Field(0, ge=0, le=1)
 
 
 class ZoneInput(StrictModel):
@@ -207,6 +220,8 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             "events": SecurityEvent,
             "failed-scans": FailedScan,
             "zones": Zone,
+            "ledger": Transaction,
+            "reconciliations": Reconciliation,
         }
         model = models.get(resource)
         if model is None:
@@ -242,6 +257,15 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             raise HTTPException(422, str(exc))
         try:
             with runtime.store.session() as s:
+                uid = data.get("uid") or data.get("tag_uid")
+                if uid:
+                    other = (
+                        InventoryItem.tag_uid if model is Personnel else Personnel.uid
+                    )
+                    if s.scalar(select(other).where(other == uid)):
+                        raise HTTPException(
+                            409, "A tag must be either a badge or an item, never both"
+                        )
                 obj = s.get(model, ident) if ident else model()
                 if obj is None:
                     raise HTTPException(404, "Not found")
@@ -254,7 +278,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 result = row(obj)
         except IntegrityError:
             raise HTTPException(409, "Duplicate value or invalid linked record")
-        if resource == "personnel":
+        if resource in {"personnel", "inventory", "slots"}:
             runtime.engine.refresh()
         if resource in {"slots", "inventory"}:
             runtime.vision.reload()
@@ -270,6 +294,34 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
         return {
             "message": "Tap a card. It will remain unauthorized until you save the person."
         }
+
+    @app.post("/api/inventory/enrol")
+    def enrol_item(request: Request):
+        return enrol(request)
+
+    @app.get("/api/ledger.csv")
+    def ledger_csv(request: Request):
+        import csv
+        import io
+
+        admin(request)
+        with runtime.store.session() as s:
+            values = [
+                row(t)
+                for t in s.scalars(
+                    select(Transaction).order_by(Transaction.id.desc()).limit(10000)
+                )
+            ]
+        output = io.StringIO()
+        columns = [c.name for c in Transaction.__table__.columns]
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(values)
+        return Response(
+            output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="ledger.csv"'},
+        )
 
     @app.post("/api/{resource}")
     def create(resource: str, body: dict, request: Request):
@@ -359,6 +411,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             s.flush()
             for z in set(body.zone_ids):
                 s.add(PersonnelZone(personnel_id=ident, zone_id=z))
+        runtime.engine.refresh()
         return {"zone_ids": sorted(set(body.zone_ids))}
 
     @app.get("/api/incidents/{ident}")
@@ -461,8 +514,8 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
     @app.get("/api/markers/{ident}.png")
     def marker_image(ident: int, request: Request):
         admin(request)
-        if ident not in list(range(30)) + list(range(40, 50)):
-            raise HTTPException(422, "Use item 0–29 or anchor 40–49")
+        if not 0 <= ident < 50:
+            raise HTTPException(422, "Use item 0–19, reveal 20–39 or anchor 40–49")
         image = cv2.copyMakeBorder(
             marker(ident, 500), 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=255
         )
@@ -495,6 +548,33 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             "message": "Capture a new empty reference after changing the ROI",
         }
 
+    @app.post("/api/calibration/pause")
+    def pause_monitoring(body: PauseInput, request: Request):
+        admin(request)
+        engine = runtime.engine
+        if not hasattr(engine, "reconcile"):
+            raise HTTPException(
+                409, "Use strict_issue profile for calibration maintenance mode"
+            )
+        with engine.auth_lock:
+            if body.paused and engine.reconcile.pending:
+                raise HTTPException(
+                    409, "Resolve pending removals before pausing shelf checks"
+                )
+            engine.monitoring_paused = body.paused
+            if not body.paused:
+                engine.reconcile.present.clear()
+                runtime.vision.debouncers.clear()
+        return {"paused": body.paused}
+
+    @app.post("/api/calibration/learn")
+    def learn(request: Request):
+        admin(request)
+        try:
+            return runtime.vision.learn()
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+
     @app.post("/api/calibration/empty-reference")
     def empty_reference(body: SlotId, request: Request):
         admin(request)
@@ -507,7 +587,12 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 raise HTTPException(404)
             path = c.data_dir / f"empty-{slot.id}-{secrets.token_hex(4)}.jpg"
             path.write_bytes(
-                jpeg(crop(frame, (slot.roi_x, slot.roi_y, slot.roi_w, slot.roi_h)))
+                jpeg(
+                    crop(
+                        runtime.vision.rectify(frame),
+                        (slot.roi_x, slot.roi_y, slot.roi_w, slot.roi_h),
+                    )
+                )
             )
             slot.empty_ref_path = str(path)
         runtime.vision.reload()
@@ -526,6 +611,11 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
     @app.put("/api/settings")
     def set_settings(body: dict, request: Request):
         admin(request)
+        if "removal_policy" in body and body["removal_policy"] != c.removal_policy:
+            raise HTTPException(
+                422,
+                "Set REMOVAL_POLICY in .env and restart; changing policy with active rules is unsafe",
+            )
         if set(body) - SAFE_SETTINGS:
             raise HTTPException(
                 422, "Unknown or secret setting; edit .env for connection settings"
@@ -568,7 +658,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
             transport = runtime.serial.transport
             if transport:
                 with transport.lock:
-                    runtime.serial.board.scan(body.uid)
+                    runtime.serial.board.scan(body.uid, body.reader)
         elif body.action == "slot":
             if body.state not in {"present", "absent", "occluded"}:
                 raise HTTPException(422)

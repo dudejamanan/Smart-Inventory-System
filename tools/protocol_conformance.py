@@ -11,6 +11,7 @@ def offline_fixture(board, badge, item, replay_dir="data/hardware-replay"):
     """Explicit destructive test fixture; backend will replace it on next normal sync."""
     if badge == item:
         raise ValueError("Badge and item must be different tags")
+    board.write(encode({"t": "HB", "n": 0}))  # restore PC presence after dead-man test
     for message in whitelist_messages(
         [(fnv1a(badge), 2, False), (fnv1a(item), 1, True)]
     ):
@@ -20,7 +21,10 @@ def offline_fixture(board, badge, item, replay_dir="data/hardware-replay"):
     print("PASS EEPROM upload count/CRC. No heartbeats now; keep USB connected.")
     wait_for(board, lambda e: e["t"] == "HB" and e["pcok"] == 0, 10, heartbeat=False)
     for uid, result in [(badge, "IN"), (item, "ISS"), (badge, "OUT")]:
-        print(f"Offline: tap {uid} for {result}; remove cards between taps.")
+        reader = 2 if uid == item else 1
+        print(
+            f"Offline: tap {uid} on reader #{reader} for {result}; remove cards between taps."
+        )
         scan = wait_for(board, lambda e: e["t"] == "SCAN", 25, heartbeat=False)
         assert scan["uid"] == uid, f"Expected {uid}, saw {scan['uid']}"
         fb = wait_for(

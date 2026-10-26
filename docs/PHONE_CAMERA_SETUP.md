@@ -1,5 +1,7 @@
 # Phone camera setup
 
+**Current operational procedure:** CURRENT_SETUP.md sections 4–6 now covers learned anchors, reveal markers, calibration pause, both cameras and WhatsApp. The phone supplies a continuous local MJPEG stream; the laptop observes it and saves incident evidence. Older M2 scope notes below are historical.
+
 ## Campus network / hotspot option
 
 Campus guest Wi-Fi may block devices from reaching each other even when both show the same network name. For a lab demo, enable a private phone hotspot and connect the laptop to it; use a strong hotspot password. Start the camera-stream app and copy the **actual hotspot-side** video URL it displays (it may differ from your home Wi-Fi IP). Open it on the laptop and run camera_test.py before mounting/calibrating. A hotspot often has no usable internet without mobile data, so test notification connectivity separately; gate/offline alarms do not need internet. Keep the phone charged, ventilated and awake. Do not expose its stream to the public tunnel. v2 reveal/anchor learned calibration arrives at M6; current M2 vision remains the v1 pipeline below.
