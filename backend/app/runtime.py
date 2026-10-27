@@ -22,6 +22,7 @@ from app.services.capture import GateCapture
 from app.services.evidence import Evidence
 from app.services.notifier import MediaSigner, NotificationQueue, TelegramNotifier
 from app.services.offline import OfflineCoordinator, badge_entries
+from app.services.speech import SpeechQueue, Announcer
 
 log = logging.getLogger(__name__)
 SAFE_SETTINGS = {
@@ -60,6 +61,11 @@ SAFE_SETTINGS = {
     "overdue_check_s",
     "gate_photo_policy",
     "slot_mode",
+    "tts_enabled",
+    "tts_rate",
+    "tts_volume",
+    "tts_voice",
+    "tts_health_announcements",
 }
 
 
@@ -85,7 +91,9 @@ class Runtime:
         self.clients = set()
         self.loop = None
         engine_type = LegacyEngine if c.removal_policy == "session_lenient" else Engine
-        self.engine = engine_type(self.store, c, lambda m: self.serial.send(m))
+        self.speech = SpeechQueue(c, simulate=simulate)
+        self.announcer = Announcer(self.speech)
+        self.engine = engine_type(self.store, c, self.send_command)
         self.serial = SerialLink(c, self.on_serial, simulate)
         self.serial.on_connect = self.engine.sync
         self.serial.session_count = (
@@ -134,6 +142,14 @@ class Runtime:
             self.telegram.photo = self.notification_photo
         self.worker = None
         self.safety_worker = None
+
+    def send_command(self, m):
+        # Controller dispatch ALWAYS precedes optional speech scheduling.
+        self.serial.send(m)
+        try:
+            self.announcer.command(m)
+        except Exception:
+            log.exception("Speech scheduling failed; controller command already sent")
 
     def schedule_alert(self, incident, kind, uid, source, seq):
         # Preserve gate incident evidence even with an expired or broken notifier.
@@ -202,6 +218,7 @@ class Runtime:
         return path
 
     def on_serial(self, m):
+        enrolling = m["t"] == "SCAN" and self.engine.enrol
         self.offline.on_message(m)
         if m["t"] == "BOOT":
             minimum = (2, 0) if self.c.removal_policy == "session_lenient" else (2, 1)
@@ -216,11 +233,21 @@ class Runtime:
             )
         self.engine.authorize(m)
         try:
+            self.announcer.serial(m, enrolling=enrolling)
+        except Exception:
+            log.exception(
+                "Speech feedback scheduling failed; RFID processing continues"
+            )
+        try:
             self.events.put_nowait(m)
         except queue.Full:
             log.error("Event queue full; local UNO alarm remains operational")
 
     def publish(self, kind, payload):
+        try:
+            self.announcer.event(kind, payload)
+        except Exception:
+            log.exception("Optional voice announcement failed")
         if self.loop and self.clients:
             for client in list(self.clients):
 
@@ -279,6 +306,8 @@ class Runtime:
                 log.exception("Health or retention job failed")
 
     def start(self):
+        self.speech.start()
+        self.speech.say("startup", "Voice announcements enabled.", ttl=10)
         self.gate.start()
         self.shelf.start()
         if self.simulate:
@@ -373,9 +402,11 @@ class Runtime:
             "rules_persistence_error": getattr(self.engine, "persistence_error", None),
             "rules_pending_writes": getattr(self.engine, "jobs", queue.Queue()).qsize(),
             "enrolled_uid": self.engine.enrolled_uid,
+            "speech": self.speech.status(),
         }
 
     def close(self):
+        self.speech.close()
         self.vision.close()
         self.offline.close()
         self.serial.close()

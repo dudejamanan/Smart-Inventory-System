@@ -238,6 +238,19 @@ function App() {
               })}
             </span>
             {status.simulate && <Badge value="SIMULATION" />}
+            <button
+              className="secondary"
+              disabled={!status.speech}
+              onClick={() =>
+                act(() =>
+                  api("settings", "PUT", {
+                    tts_enabled: !status.speech?.enabled,
+                  }),
+                )
+              }
+            >
+              {status.speech?.enabled ? "Mute voice" : "Enable voice"}
+            </button>
           </div>
         </header>
         {error && (
@@ -273,6 +286,12 @@ function App() {
         {status.serial?.error && (
           <div className="error" role="alert">
             {status.serial.error}
+          </div>
+        )}
+        {status.speech?.error && (
+          <div className="warning">
+            {status.speech.error} The buzzer and access rules continue
+            independently.
           </div>
         )}
         {status.prewarn && (
@@ -662,6 +681,16 @@ function App() {
                 ["Shelf camera", status.shelf_camera],
                 ["Notification provider", status.notifier],
                 [
+                  "Voice announcements",
+                  !status.speech?.enabled
+                    ? "Muted"
+                    : status.speech?.ready
+                      ? "Ready (laptop speakers)"
+                      : "Starting on next announcement",
+                ],
+                ["Speech queue", status.speech?.queued ?? 0],
+                ["Speech diagnostic", status.speech?.error || "None"],
+                [
                   "WhatsApp session",
                   Math.floor(status.whatsapp_remaining_s / 3600) +
                     "h " +
@@ -691,6 +720,12 @@ function App() {
                     Test {w}
                   </button>
                 ))}
+                <button
+                  disabled={!status.speech?.enabled}
+                  onClick={() => act(() => api("test/speech", "POST"))}
+                >
+                  Test voice
+                </button>
               </div>
               <p>
                 Verify each light or sound physically. A queued command is not
@@ -1069,6 +1104,13 @@ function Settings({ act }: { act: Act }) {
   return (
     <section className="panel">
       <h2>Detection and alarm settings</h2>
+      <p>
+        Voice announcements use the laptop speakers, independently of the
+        buzzer. TTS enabled mutes/unmutes speech; rate is words per minute
+        (80–300), volume is 0–1, and a blank voice selects the Windows default.
+        Changes apply immediately. Simulation speech is muted unless
+        TTS_IN_SIMULATION=true is set in .env.
+      </p>
       <p>
         Alarm and detection thresholds apply immediately. Restart after changing
         camera sources, capture rate or serial settings. Keep credentials in

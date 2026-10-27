@@ -1,5 +1,9 @@
 # Twilio WhatsApp setup
 
+**Newer trial account restriction:** the current connected account delivered its provided approved template and real signed status callbacks, but rejected custom text/photos with 21654 ContentSid Required. Twilio's newer Try out WhatsApp trial only permits its predefined templates, even after an inbound hello. TWILIO_TEMPLATE_ONLY=true makes this explicit in health and marks incident sends BLOCKED_TRIAL_RESTRICTION instead of claiming delivery or retrying indefinitely. Full custom incident/photo alerts need suitable full WhatsApp functionality; after upgrading/configuring that sender, set the flag false and retest. See [official trial restrictions](https://www.twilio.com/docs/usage/trials/try-out-whatsapp). These differ from the legacy sandbox window rules below.
+
+On the newer console the inbound setting is **Home → Try it out → Communications → Send a WhatsApp message → Inbound → Auto-Reply settings → Custom**. Use the current PUBLIC_BASE_URL plus /webhooks/twilio/inbound and POST. The incoming setting was not verified as saved during the last connection check. The receiving owner's genuine hello was verified through the authenticated Twilio Messages API; its actual provider timestamp bootstrapped the local session record, with an audit event. No inbound timestamp was fabricated. HTTP/JPEG tunnel access and real signed outbound status callbacks were verified; custom photo delivery was not.
+
 ## 1. Account and sandbox
 
 1. Create your own account at [Twilio](https://www.twilio.com/), complete its phone/email checks and inspect trial/billing limits. Account creation and any charges are your responsibility; no credentials are bundled here.

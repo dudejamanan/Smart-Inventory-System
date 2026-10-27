@@ -526,6 +526,10 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
     @app.post("/api/test/{what}")
     def test_hardware(what: str, request: Request):
         admin(request)
+        if what=='speech':
+            if not runtime.speech.enabled:
+                raise HTTPException(409,'Enable TTS first. Simulation audio also requires TTS_IN_SIMULATION=true in .env.')
+            return {'queued':runtime.speech.test(),'message':'Listen on the laptop speakers; no Arduino alarm is triggered.'}
         if what not in {"green", "red", "buzzer"}:
             raise HTTPException(422)
         runtime.serial.send({"t": "TEST", "what": what})
@@ -642,6 +646,7 @@ def create_app(config: Config | None = None, simulate=False, start_services=True
                 setattr(c, key, value)
                 s.merge(Setting(key=key, value=json.dumps(value)))
         runtime.vision.debouncers.clear()
+        runtime.speech.refresh_settings()
         runtime.engine.sync()
         return settings(request)
 

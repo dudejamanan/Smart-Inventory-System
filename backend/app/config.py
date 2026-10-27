@@ -52,12 +52,19 @@ class Config(BaseSettings):
     zones_enabled: bool = False
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
+    twilio_template_only: bool = False
     twilio_whatsapp_from: str = ""
     owner_whatsapp_to: str = ""
     public_base_url: str = ""
     notify_channels: str = "whatsapp"
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
+    tts_enabled: bool = True
+    tts_rate: int = Field(175, ge=80, le=300)
+    tts_volume: float = Field(0.9, ge=0, le=1)
+    tts_voice: str = ""
+    tts_in_simulation: bool = False
+    tts_health_announcements: bool = True
 
     @field_validator("data_dir")
     @classmethod

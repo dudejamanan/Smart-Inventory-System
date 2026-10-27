@@ -1,5 +1,7 @@
 # Your remaining steps, in order
 
+Voice follow-up (2026-10-28): local pyttsx3 test was completed and the user confirmed hearing it. See VOICE_ANNOUNCEMENTS.md for mute/rate/volume and the Test voice button. A voice announcement does not replace the independent UNO buzzer or prove a physical access/removal event occurred.
+
 Current guide: [CURRENT_SETUP.md](CURRENT_SETUP.md). The user resumed software development beyond M2 on 2026-10-27. Earlier M2 handoff and verification files are historical. Software checks do not establish any physical result.
 
 COM11 follow-up completed: main firmware 2.2 uploaded, both reader scan/feedback paths and laptop camera checked on real hardware; user confirmed LEDs/buzzer. See HARDWARE_CHECK_COM11.md. Remaining work starts with real badge/item enrolment, phone stream/calibration and provider configuration. Use firmware 2.2 builds below; the 2.1 references describe the minimum supported pin profile.

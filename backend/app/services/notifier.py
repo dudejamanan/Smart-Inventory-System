@@ -169,6 +169,9 @@ class NotificationQueue:
         self.photo = lambda source, seq: None
         self.last_send = 0.0
         self.configuration_error = None
+        self.template_only = (
+            isinstance(self.provider, TwilioNotifier) and c.twilio_template_only
+        )
         if (
             not provider
             and any(
@@ -196,6 +199,8 @@ class NotificationQueue:
         )
         if not self.enabled:
             self.configuration_error = None
+        elif self.template_only:
+            self.configuration_error = "Twilio connected, but this trial permits predefined templates only. Custom incident text and photos require full WhatsApp functionality."
         if isinstance(self.provider, TelegramNotifier) and not (
             c.telegram_bot_token and c.telegram_chat_id
         ):
@@ -260,6 +265,13 @@ class NotificationQueue:
                 return
             except Exception as exc:
                 code = str(getattr(exc, "code", "") or "")
+                if code == "21654":
+                    self.template_only = True
+                    self.configuration_error = "Twilio requires ContentSid: this account cannot send custom incident text/photos in its current trial mode."
+                    self.update(
+                        ident, status="FAILED_TEMPLATE_REQUIRED", error_code=code
+                    )
+                    return
                 if code == "63016":
                     self.update(ident, status="FAILED_SESSION_EXPIRED", error_code=code)
                     return
@@ -280,6 +292,12 @@ class NotificationQueue:
         if not self.enabled:
             for ident in rows:
                 self.update(ident, status="DISABLED")
+            return
+        if self.template_only:
+            for ident in rows:
+                self.update(
+                    ident, status="BLOCKED_TRIAL_RESTRICTION", error_code="21654"
+                )
             return
         if self.configuration_error:
             for ident in rows:
