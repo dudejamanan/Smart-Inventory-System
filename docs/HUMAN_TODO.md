@@ -2,6 +2,8 @@
 
 Current guide: [CURRENT_SETUP.md](CURRENT_SETUP.md). The user resumed software development beyond M2 on 2026-10-27. Earlier M2 handoff and verification files are historical. Software checks do not establish any physical result.
 
+COM11 follow-up completed: main firmware 2.2 uploaded, both reader scan/feedback paths and laptop camera checked on real hardware; user confirmed LEDs/buzzer. See HARDWARE_CHECK_COM11.md. Remaining work starts with real badge/item enrolment, phone stream/calibration and provider configuration. Use firmware 2.2 builds below; the 2.1 references describe the minimum supported pin profile.
+
 1. [ ] Back up .env and DATA_DIR privately with the backend stopped. Preserve tag v1.0. Use a separate real hardware data directory; do not authorise fake simulation badges in a real demonstration.
 2. [ ] Verify actual circuit: reader #1 SS D10 / RST D9, reader #2 SS D4 / RST D5, shared D13/D11/D12, common ground, 3.3 V readers, appropriate level shifting and sufficient regulated power. Check LED resistors and buzzer current/driver. There is no wired button; firmware disables it.
 3. [ ] Activate Python 3.11 venv, install backend lockfile, `npm ci --prefix frontend`, `npm run build --prefix frontend`. Generate missing secrets with scripts/init_env.py. Never share secrets.

@@ -20,6 +20,8 @@ bool dropping=false, pending=false, haveFail=false, alarmOn=false, pwOn=false, m
 uint8_t feedback=255, alarmReason=A_PC, testKind=0;
 uint32_t lastPc=0,lastHb=0,scanAt=0,firstFail=0,alarmAt=0,pwAt=0,pwMs=0,feedbackAt=0,muteAt=0,testAt=0,maxLoop=0;
 uint32_t lastHash[READER_COUNT]={0}, lastCard[READER_COUNT]={0};
+uint32_t lastSeen[READER_COUNT]={0},readerActivatedAt=0;
+bool readerReady=false;
 bool haveCard[READER_COUNT]={false};
 bool btnRaw=false,btnStable=false;
 uint32_t btnChanged=0,btnSince=0;
@@ -233,12 +235,24 @@ void serialInput(){
   uint8_t budget=96;while(Serial.available()&&budget--){char ch=Serial.read();if(ch=='\n'){if(!dropping&&lineLen){line[lineLen]=0;command();}lineLen=0;dropping=false;}else if(!dropping){if(lineLen>=96){lineLen=0;dropping=true;}else line[lineLen++]=ch;}}
 }
 void readCard(){
-  if(pending)return;uint8_t rd=nextReader;nextReader=(nextReader+1)%READER_COUNT;
+  if(pending)return;uint8_t rd=nextReader;
+  // Nearby powered readers interfered on the real circuit. Keep exactly one
+  // RF field active; allow a nonblocking field-settling interval before REQA.
+  if(!readerReady){
+    for(uint8_t i=0;i<READER_COUNT;i++)if(i!=rd)readers[i].PCD_AntennaOff();
+    readers[rd].PCD_AntennaOn();readerActivatedAt=millis();readerReady=true;return;
+  }
+  if(!elapsed(millis(),readerActivatedAt,RF_SETTLE_MS))return;
+  readerReady=false;nextReader=(nextReader+1)%READER_COUNT;
   MFRC522 &reader=readers[rd];if(!reader.PICC_IsNewCardPresent()||!reader.PICC_ReadCardSerial())return;
   if(reader.uid.size!=4&&reader.uid.size!=7&&reader.uid.size!=10)return;
   const char hex[]="0123456789ABCDEF";for(uint8_t i=0;i<reader.uid.size;i++){pendingUid[2*i]=hex[reader.uid.uidByte[i]>>4];pendingUid[2*i+1]=hex[reader.uid.uidByte[i]&15];}pendingUid[reader.uid.size*2]=0;
   reader.PICC_HaltA();reader.PCD_StopCrypto1();uint32_t now=millis(),hash=uidHash(pendingUid);
-  if(haveCard[rd]&&lastHash[rd]==hash&&!elapsed(now,lastCard[rd],CARD_DEBOUNCE_MS))return;
+  // Field cycling wakes a held tag again. Refresh presence on every read so it
+  // cannot repeatedly check a worker IN/OUT without a physical removal gap.
+  bool same=haveCard[rd]&&lastHash[rd]==hash;
+  bool held=same&&!elapsed(now,lastSeen[rd],CARD_RELEASE_MS);lastSeen[rd]=now;
+  if(same&&(held||!elapsed(now,lastCard[rd],CARD_DEBOUNCE_MS)))return;
   haveCard[rd]=true;lastHash[rd]=hash;lastCard[rd]=now;pendingSeq=++sequence;scanAt=now;pendingReader=rd;
   Serial.print(F("{\"t\":\"SCAN\",\"uid\":\""));Serial.print(pendingUid);Serial.print(F("\",\"seq\":"));Serial.print(pendingSeq);Serial.print(F(",\"rd\":"));Serial.print(rd);Serial.println(F("}"));
   if(!pcOk(now)&&offlineScan(hash))return;pending=true;
@@ -261,7 +275,8 @@ void setup(){
   Serial.begin(SERIAL_BAUD);SPI.begin();
   for(uint8_t i=0;i<READER_COUNT;i++){uint8_t ss=i?RFID_SS_1:RFID_SS;pinMode(ss,OUTPUT);digitalWrite(ss,HIGH);}
   for(uint8_t i=0;i<READER_COUNT;i++)readers[i].PCD_Init(i?RFID_SS_1:RFID_SS,i?RFID_RST_1:RFID_RST);
-  loadOffline();lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.1\",\"rst\":\""));
+  for(uint8_t i=0;i<READER_COUNT;i++)readers[i].PCD_AntennaOff();
+  loadOffline();lastPc=millis();Serial.print(F("{\"t\":\"BOOT\",\"fw\":\"2.2\",\"rst\":\""));
   Serial.print(resetCause&_BV(WDRF)?F("WDT"):resetCause&_BV(BORF)?F("BOR"):resetCause&_BV(EXTRF)?F("EXT"):F("PWR"));Serial.print(F("\",\"rd\":"));Serial.print(READER_COUNT);Serial.print(F(",\"bid\":"));Serial.print(bootId);Serial.println(F("}"));
 #if USE_WDT
   wdt_enable(WDTO_2S);

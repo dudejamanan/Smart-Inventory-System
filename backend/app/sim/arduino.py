@@ -44,6 +44,7 @@ class SimulatedArduino:
         self.last_hb = clock()
         self.last_emit = clock()
         self.last_scan = {}
+        self.last_seen = {}
         self.failures = 0
         self.first_fail = None
         self.alarm_until = 0.0
@@ -81,7 +82,7 @@ class SimulatedArduino:
         self.stage_expected = 0
         self.replay_at = -100.0
         self.was_online = True
-        self.emit("BOOT", fw="2.1", rst=self.reset_cause, rd=readers, bid=self.boot_id)
+        self.emit("BOOT", fw="2.2", rst=self.reset_cause, rd=readers, bid=self.boot_id)
 
     def emit(self, t, **kw):
         self.events.append({"t": t, **kw})
@@ -139,6 +140,18 @@ class SimulatedArduino:
             self.failures = 0
             self.first_fail = None
         self.emit("FB", seq=seq, r=r, ms=max(0, int((self.clock() - started) * 1000)))
+
+    def poll_card(self, uid, rd=0):
+        """Continuous RF observation; scan() represents an explicit re-presentation."""
+        if not 0 <= rd < self.readers:
+            raise ValueError("Reader unavailable")
+        if uid is None or self.pending:
+            return
+        previous = self.last_seen.get(rd)
+        self.last_seen[rd] = (uid, self.clock())
+        if previous and previous[0] == uid and self.clock() - previous[1] < 0.6:
+            return
+        self.scan(uid, rd)
 
     def scan(self, uid, rd=0):
         if not 0 <= rd < self.readers:

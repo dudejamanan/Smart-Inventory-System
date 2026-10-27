@@ -1,6 +1,6 @@
 # Start here: your wired two-reader system
 
-Updated 2026-10-27. This supersedes the old M2 stop instructions for normal operation. The user explicitly requested the remaining operational rules and the following actual pin map. Tag v1.0 remains preserved. No physical board was flashed during development. The current main firmware identifies itself as **2.1** while retaining protocol 2.0; strict mode refuses old 2.0 firmware because its wiring/failure policy differs.
+Updated 2026-10-27. This supersedes the old M2 stop instructions for normal operation. The user explicitly requested the remaining operational rules and the following actual pin map. Tag v1.0 remains preserved. COM11 now runs **firmware 2.2**, retaining protocol 2.0 and compatible with the 2.1 minimum profile. Alternating RF fields resolve the observed reader interaction; see HARDWARE_CHECK_COM11.md for actual results and remaining limits. Strict mode refuses old 2.0 firmware because its wiring/failure policy differs.
 
 ## 1. What each device does
 

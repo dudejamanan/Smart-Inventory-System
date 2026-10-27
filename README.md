@@ -1,5 +1,7 @@
 # Smart Warehouse Access & Inventory Security System
 
+**COM11 hardware follow-up:** firmware 2.2 now alternates reader RF fields, resolving the observed second-reader interaction. Both physical reader/backend paths and laptop capture passed; phone/WhatsApp remain unconfigured. Actual results and limits: [HARDWARE_CHECK_COM11](docs/HARDWARE_CHECK_COM11.md).
+
 **Current: operational two-reader build, resumed by the user on 2026-10-27.** Reader #1 badges use D10/D9; reader #2 item tags use D4/D5; no button is wired. Includes multiple expiring sessions, item permissions/issue/return ledger, strict shelf reconciliation, phone reveal/anchor calibration, third-failure laptop photos, WhatsApp and optional Telegram. Start with [the complete current setup and logic guide](docs/CURRENT_SETUP.md) and [human checklist](docs/HUMAN_TODO.md). The old M2 checkpoint and verification reports are historical; tag `v1.0` remains preserved. Optional person counting/LCD/ultrasonic are not implemented.
 
 Compile every v2 variant/test sketch with `python tools/compile_firmware.py`. `python tools/fake_scenarios.py` runs ten threaded legacy regressions, four offline checkpoint scenarios and the operational rules/vision table; new domain timers use injected clocks. Main firmware requires v2 protocol; do not pair it with the v1 backend. EEPROM authorization survives reset; offline RAM logs/sessions do not, including UNO resets caused by opening serial.

@@ -32,7 +32,12 @@ def main():
     )
 
     def compile_one(path, label, flags="", budget=False):
-        command = base + ["--output-dir", str(ROOT / "build/firmware-v2" / label)]
+        command = base + [
+            "--build-path",
+            str(ROOT / "build/firmware-work" / label),
+            "--output-dir",
+            str(ROOT / "build/firmware-v2" / label),
+        ]
         if flags:
             command += ["--build-property", "compiler.cpp.extra_flags=" + flags]
         result = subprocess.run(command + [str(path)], capture_output=True, text=True)
