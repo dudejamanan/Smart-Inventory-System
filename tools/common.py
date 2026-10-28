@@ -37,7 +37,7 @@ def connect(port=None):
 
 def wait_for(board, predicate, seconds=5, heartbeat=True, on_event=None):
     end = time.monotonic() + seconds
-    next_hb = 0
+    next_hb = time.monotonic() + 2
     while time.monotonic() < end:
         if heartbeat and time.monotonic() > next_hb:
             board.write(encode({"t": "HB", "n": 0}))
@@ -45,10 +45,16 @@ def wait_for(board, predicate, seconds=5, heartbeat=True, on_event=None):
         raw = board.read()
         if not raw:
             continue
+
+        print("DEBUG RAW RX:", repr(raw))
+
         try:
             event = parse(raw)
-        except ValueError:
+        except ValueError as exc:
+            print("DEBUG PARSE ERROR:", exc)
             continue
+
+        print("DEBUG PARSED RX:", event)
         if on_event:
             on_event(event)
         if predicate(event):

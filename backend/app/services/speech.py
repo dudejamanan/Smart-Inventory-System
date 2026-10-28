@@ -380,7 +380,7 @@ class Announcer:
                     "OUT": "Checked out. Goodbye.",
                     "ISS": "Permission granted. Item issued.",
                     "RET": "Item returned. Thank you.",
-                    "DEN": "Access denied.",
+                    "DEN": "Teri maa ki chooot. raaand",
                     "PRM": "Permission denied. Check the reader and your clearance.",
                     "NSS": "Scan your badge before scanning an item.",
                 }.get(m["r"])

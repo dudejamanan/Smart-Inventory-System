@@ -54,9 +54,11 @@ class RealSerial:
             return result
         return b""
 
-    def write(self, data: bytes) -> None:
+    def write(self, data):
+        print("SERIAL WRITE:", repr(data))
         self.port.write(data)
-
+        self.port.flush()
+        
     def close(self) -> None:
         self.port.close()
 
