@@ -126,7 +126,7 @@ def test_voice_rate_volume_change_applied_on_owner():
         ("OUT", "Checked out. Goodbye."),
         ("ISS", "Permission granted. Item issued."),
         ("RET", "Item returned. Thank you."),
-        ("DEN", "Teri maa ki chut. Bhag jaa ."),
+        ("DEN", "Access denied."),
         ("PRM", "Permission denied. Check the reader and your clearance."),
         ("NSS", "Scan your badge before scanning an item."),
     ],
